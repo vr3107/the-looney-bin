@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7f4" />
+    <title>The Looney Bin — your next role, in focus</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand" aria-label="The Looney Bin">
+          <span class="brand-mark" aria-hidden="true">✳</span
+          ><span>The <em>Looney Bin</em></span>
+        </div>
+        <div>
+          <div class="navlabel">WORKSPACE</div>
+          <nav class="nav">
+            <button class="active" data-page="home">
+              <span class="ico">⌂</span>Overview</button
+            ><button data-page="discover">
+              <span class="ico">⌕</span>Find roles</button
+            ><button data-page="tracker">
+              <span class="ico">▤</span>Applications
+              <span class="count" id="navcount">0</span>
+            </button>
+          </nav>
+        </div>
+        <div>
+          <div class="navlabel">YOUR SPACE</div>
+          <nav class="nav">
+            <button data-page="profile">
+              <span class="ico">◎</span>My profile
+            </button>
+          </nav>
+        </div>
+        <div class="sidebottom">
+          <div class="tip">
+            <b>✦ Your data stays yours</b>Your profile and applications are
+            saved only in this browser.
+          </div>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div class="crumb">
+            Workspace <span style="color: #c0c6bf"> / </span>
+            <strong id="crumb">Overview</strong>
+          </div>
+          <div class="topactions">
+            <span class="date" id="today"></span>
+            <div class="avatar" id="avatar">Y</div>
+          </div>
+        </header>
+        <div class="content">
+          <section id="page-home">
+            <div class="pagehead">
+              <div>
+                <div class="eyebrow" id="greeting">
+                  YOUR JOB SEARCH, ORGANIZED
+                </div>
+                <h1 id="welcome">A little closer to your next role.</h1>
+                <div class="sub">
+                  A clear view of your search, from first look to offer.
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="navigate('discover')">
+                ⌕ &nbsp; Find matching roles
+              </button>
+            </div>
+            <div class="grid">
+              <div class="card stat">
+                <div class="stat-top">
+                  Applications <span class="stat-ico">▤</span>
+                </div>
+                <div class="stat-num" id="stat-app">0</div>
+                <div class="stat-foot">roles in your pipeline</div>
+              </div>
+              <div class="card stat">
+                <div class="stat-top">
+                  In progress <span class="stat-ico">◷</span>
+                </div>
+                <div class="stat-num" id="stat-progress">0</div>
+                <div class="stat-foot">awaiting a next step</div>
+              </div>
+              <div class="card stat">
+                <div class="stat-top">
+                  Interviews <span class="stat-ico">◉</span>
+                </div>
+                <div class="stat-num" id="stat-interview">0</div>
+                <div class="stat-foot">conversations ahead</div>
+              </div>
+              <div class="card stat">
+                <div class="stat-top">
+                  Profile ready <span class="stat-ico">✳</span>
+                </div>
+                <div class="stat-num" id="stat-ready">0%</div>
+                <div class="stat-foot">add details to improve matches</div>
+              </div>
+            </div>
+            <div class="hero">
+              <div>
+                <h2>Find work that fits you.</h2>
+                <p>
+                  Tell us what you’re looking for. Compare roles, save the
+                  promising ones, and keep every follow-up in one place.
+                </p>
+              </div>
+              <button class="btn" onclick="navigate('discover')">
+                Explore job matches &nbsp;→
+              </button>
+            </div>
+            <div class="cols">
+              <div class="card panel">
+                <div class="panelhead">
+                  <h3>Recent applications</h3>
+                  <button class="textlink" onclick="navigate('tracker')">
+                    View tracker →
+                  </button>
+                </div>
+                <div id="recent"></div>
+              </div>
+              <div class="card panel">
+                <div class="panelhead">
+                  <h3>Your search rhythm</h3>
+                  <span class="stat-ico">⌁</span>
+                </div>
+                <div class="steps">
+                  <div class="step">
+                    <div class="stepdot">◎</div>
+                    <div>
+                      <b>Set up your profile</b
+                      ><span>Add a resume and job preferences.</span>
+                    </div>
+                  </div>
+                  <div class="step">
+                    <div class="stepdot">⌕</div>
+                    <div>
+                      <b>Find & save good fits</b
+                      ><span>Compare the role to your experience.</span>
+                    </div>
+                  </div>
+                  <div class="step">
+                    <div class="stepdot">↗</div>
+                    <div>
+                      <b>Apply and keep moving</b
+                      ><span>Track your status and next follow-up.</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="bar"><i id="setupbar" style="width: 0%"></i></div>
+              </div>
+            </div>
+          </section>
+          <section id="page-discover" class="hidden">
+            <div class="pagehead">
+              <div>
+                <div class="eyebrow">DISCOVER</div>
+                <h1>Find your next role.</h1>
+                <div class="sub">
+                  Search thousands of current listings across multiple job feeds
+                  and show direct role matches first, followed by related roles
+                  and broader matches. Resume match ranks jobs within each tier;
+                  listings refresh every 5 minutes while this page is open.
+                </div>
+              </div>
+              <button class="btn" onclick="openModal('job')">
+                ＋ Add a job
+              </button>
+            </div>
+            <div class="searchbox">
+              <span style="padding: 7px 3px 7px 7px; color: #79837a">⌕</span
+              ><input
+                id="query"
+                placeholder="Job titles or company names, separated by commas — e.g. Data Scientist, Capital One"
+              /><input
+                id="location"
+                placeholder="U.S. location or state"
+                list="us-location-options"
+                style="max-width: 180px"
+              /><button class="btn btn-primary" onclick="searchBoards()">
+                Find resume matches
+              </button>
+            </div>
+            <div class="help search-tips">
+              Search job titles or company names, separated by commas. Use
+              <b>"quotes"</b> for an exact title and <b>-word</b> to exclude
+              (e.g. <i>Data Scientist, Capital One -intern</i>). Abbreviations
+              like ML, AI, Sr., SDE, and BI are understood, and small typos are
+              tolerated.
+            </div>
+            <div class="filters filters-top">
+              <select id="boardfilter" onchange="setBoardFilter()" aria-label="Job board">
+                <option value="all">All job boards</option>
+                <optgroup label="Listed in The Looney Bin">
+                  <option value="Company sites">Company career sites</option>
+                  <option>Dice</option>
+                  <option>The Muse</option>
+                  <option>Himalayas</option>
+                  <option>Jooble</option>
+                  <option>Google Jobs</option>
+                  <option>HN Who is hiring</option>
+                  <option>USAJOBS</option>
+                  <option>Jobicy</option>
+                  <option>Arbeitnow</option>
+                  <option>Remote OK</option>
+                  <option>Remotive</option>
+                </optgroup>
+                <optgroup label="Postings via Google Jobs, plus a link to search the site">
+                  <option>LinkedIn</option>
+                  <option>Indeed</option>
+                  <option>ZipRecruiter</option>
+                  <option>Glassdoor</option>
+                  <option>Adzuna</option>
+                </optgroup></select
+              ><select id="yearsfilter" onchange="applyJobFilters()" aria-label="Years of experience required">
+                <option value="all">Years of experience</option>
+                <option value="0-2">0–2 years</option>
+                <option value="3-5">3–5 years</option>
+                <option value="4-5">4–5 years</option>
+                <option value="6-8">6–8 years</option>
+                <option value="9-20">9+ years</option></select
+              ><select id="workplacefilter" onchange="applyJobFilters()" aria-label="Workplace">
+                <option value="all">Remote, hybrid &amp; on-site</option>
+                <option value="Remote">Remote</option>
+                <option value="Hybrid">Hybrid</option>
+                <option value="On-site">On-site</option></select
+              ><select id="typefilter" onchange="applyJobFilters()" aria-label="Job type">
+                <option value="all">Any job type</option>
+                <option>Full-time</option>
+                <option>Contract</option>
+                <option>Part-time</option>
+                <option>Internship</option></select
+              ><select id="levelfilter" onchange="applyJobFilters()" aria-label="Experience level">
+                <option value="all">Any level</option>
+                <option>Internship</option>
+                <option>Entry level</option>
+                <option>Mid level</option>
+                <option>Senior</option>
+                <option>Lead / Staff</option>
+                <option>Manager</option></select
+              ><select id="recencyfilter" onchange="renderJobs()" aria-label="Posting date">
+                <option value="all">Any posting date</option>
+                <option value="10">Past 10 hours</option>
+                <option value="24">Past 24 hours</option>
+                <option value="48">Past 2 days</option>
+                <option value="72">Past 3 days</option>
+                <option value="96">Past 4 days</option>
+                <option value="120">Past 5 days</option>
+                <option value="144">Past 6 days</option>
+                <option value="168">Past week</option>
+                <option value="336">Past 2 weeks</option>
+                <option value="720">Past month</option></select
+              ><select id="matchfilter" onchange="applyJobFilters()" aria-label="Match score">
+                <option value="all">Any match score</option>
+                <option value="30">30%+ match</option>
+                <option value="50">50%+ match</option>
+                <option value="70">70%+ match</option></select
+              ><button type="button" class="chip-btn" id="hiddentoggle" onclick="toggleHiddenJobs()">Hidden jobs</button>
+              <div class="filters-right">
+                <input id="resultsearch" type="search" placeholder="Filter results by title or company" oninput="applyJobFilters()" aria-label="Filter results by title or company" />
+                <select id="sortfilter" onchange="renderJobs()" aria-label="Sort">
+                  <option value="match">Best match</option>
+                  <option value="recent">Newest first</option></select>
+              </div>
+            </div>
+            <datalist id="us-location-options">
+              <option value="United States"></option>
+              <option value="Remote (US)"></option>
+              <option value="Hybrid (US)"></option>
+            </datalist>
+            <div class="help" style="margin: 0 0 13px">
+              Searches Jobicy, Arbeitnow, Remote OK, Remotive, and Dice when
+              its search service is available. LinkedIn opens as a targeted
+              external job search.
+              Choose United States, a state, Remote (US), or Hybrid (US) to
+              keep listings in that U.S. scope. Worldwide remote roles are
+              included when they accept applicants from anywhere. Feed coverage
+              varies by source. Your resume stays in this
+              browser; only public listings are fetched. Match % is resume
+              keyword overlap, not an ATS or hiring prediction. Sources update
+              on their own schedules, so a new posting may not appear instantly.
+            </div>
+            <div class="board-links" id="boardlinks"></div>
+            <div id="companypanel"></div>
+            <div id="savebuttonpanel"></div>
+            <div class="help" id="jobcount" style="margin: 0 0 12px"></div>
+            <div class="jobs" id="jobs"></div>
+          </section>
+          <section id="page-tracker" class="hidden">
+            <div class="pagehead">
+              <div>
+                <div class="eyebrow">YOUR PIPELINE</div>
+                <h1>Applications, at a glance.</h1>
+                <div class="sub">
+                  Every role and follow-up, all in one place.
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="openModal('job')">
+                ＋ Track an application
+              </button>
+            </div>
+            <div class="card panel">
+              <div class="panelhead">
+                <h3>All applications</h3>
+                <select
+                  id="statusfilter"
+                  onchange="renderTracker()"
+                  style="
+                    border: 1px solid var(--line);
+                    padding: 7px 9px;
+                    border-radius: 8px;
+                    font-size: 11px;
+                  "
+                >
+                  <option value="all">Every status</option>
+                  <option>Saved</option>
+                  <option>Applied</option>
+                  <option>Interview</option>
+                  <option>Offer</option>
+                  <option>Rejected</option>
+                  <option>Archived</option>
+                </select>
+              </div>
+              <div class="table-wrap" id="trackerwrap"></div>
+            </div>
+          </section>
+          <section id="page-profile" class="hidden">
+            <div class="pagehead">
+              <div>
+                <div class="eyebrow">YOUR PROFILE</div>
+                <h1 id="profiletitle">Tell us about you.</h1>
+                <div class="sub">
+                  Your details help you assess job fit and prepare tailored
+                  application drafts.
+                </div>
+              </div>
+              <button class="btn btn-primary" onclick="saveProfile()">
+                Save profile
+              </button>
+            </div>
+            <div class="profile-layout">
+              <div class="card panel">
+                <div class="panelhead">
+                  <h3>About you</h3>
+                  <span class="stat-ico">◎</span>
+                </div>
+                <div class="field">
+                  <label>Your name</label
+                  ><input id="p-name" placeholder="e.g. Jordan Lee" />
+                </div>
+                <div class="field">
+                  <label>Email for applications</label
+                  ><input
+                    id="p-email"
+                    type="email"
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div class="field">
+                  <label>Target roles</label
+                  ><input
+                    id="p-role"
+                    placeholder="e.g. Product designer, UX designer"
+                  />
+                </div>
+                <div class="field">
+                  <label>Preferred location</label
+                  ><input
+                    id="p-location"
+                    placeholder="U.S. location, state, Remote (US)"
+                    list="us-location-options"
+                  />
+                </div>
+                <div class="field">
+                  <label>Salary range (optional)</label
+                  ><input id="p-salary" placeholder="e.g. $90k–$120k" />
+                </div>
+                <div class="field">
+                  <label>Work authorization / other details</label
+                  ><textarea
+                    id="p-details"
+                    placeholder="Anything an application should reflect: work authorization, start date, links, or preferences."
+                  ></textarea>
+                </div>
+              </div>
+              <div class="card panel">
+                <div class="panelhead">
+                  <h3>Resume library</h3>
+                  <label class="btn btn-sm" style="cursor: pointer"
+                    >＋ Add resumes (DOCX or PDF)<input
+                      type="file"
+                      accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                      id="resume-file"
+                      multiple
+                      hidden
+                  /></label>
+                </div>
+                <div id="resume-library"></div>
+                <div class="resume-drop" style="margin-top: 16px">
+                  <div>
+                    <b id="resume-label">Add your resume</b
+                    ><span
+                      >Edit the selected resume text below; each file stays
+                      separate.</span
+                    >
+                  </div>
+                  <span class="tag">Selected resume</span>
+                </div>
+                <div class="field">
+                  <label>Resume content · imported from DOCX or PDF</label
+                  ><textarea
+                    id="p-resume"
+                    style="min-height: 275px"
+                    placeholder="Upload a Word (.docx) resume. Its content is parsed for match estimates and remains in this browser."
+                  ></textarea>
+                </div>
+                <div class="insight-grid" id="resume-insights">
+                  <div class="insight">
+                    <div class="insight-label">ATS readiness</div>
+                    <div class="insight-value">—</div>
+                  </div>
+                  <div class="insight">
+                    <div class="insight-label">Achievement impact</div>
+                    <div class="insight-value">—</div>
+                  </div>
+                  <div class="insight">
+                    <div class="insight-label">Scanability</div>
+                    <div class="insight-value">—</div>
+                  </div>
+                </div>
+                <div class="analysis-note" id="resume-analysis">
+                  Add a resume to see a transparent heuristic review. These
+                  scores are coaching signals, not scores from a specific
+                  employer’s ATS.
+                </div>
+                <div class="help" style="margin-top: 10px">
+                  Resume files are parsed locally in your browser; the resume
+                  text is not sent to the job listings source. Review and edit
+                  all application details before sending.
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <nav class="mobile-nav">
+          <button class="active" data-page="home">
+            <span class="ico">⌂</span>Home</button
+          ><button data-page="discover"><span class="ico">⌕</span>Find</button
+          ><button data-page="tracker"><span class="ico">▤</span>Tracker</button
+          ><button data-page="profile">
+            <span class="ico">◎</span>Profile
+          </button>
+        </nav>
+      </main>
+    </div>
+    <div id="modalroot"></div>
+    <div id="toastroot"></div>
+
+    <script src="js/app-core.js" defer></script>
+    <script src="js/job-details.js" defer></script>
+    <script src="js/location-matching.js" defer></script>
+    <script src="js/resume-matching.js" defer></script>
+    <script src="js/profile-resumes.js" defer></script>
+    <script src="js/search-relevance.js" defer></script>
+    <script src="js/job-search.js" defer></script>
+    <script src="js/company-jobs.js" defer></script>
+    <script src="js/save-button.js" defer></script>
+    <script src="js/job-cards.js" defer></script>
+    <script src="js/resume-library.js" defer></script>
+    <script src="js/resume-analysis.js" defer></script>
+    <script src="js/docx-export.js" defer></script>
+    <script src="js/resume-formats.js" defer></script>
+    <script src="js/application-history.js" defer></script>
+    <script src="js/tailored-resume-editor.js" defer></script>
+    <script src="js/tailoring-controls.js" defer></script>
+    <script src="js/ats-score.js" defer></script>
+    <script src="js/ai-tailoring.js" defer></script>
+    <script src="js/cover-letter.js" defer></script>
+    <script src="js/tailor-studio.js" defer></script>
+  </body>
+</html>
