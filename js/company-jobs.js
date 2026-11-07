@@ -295,7 +295,7 @@ async function loadServerBoards(query, location, progress) {
   }
 }
 window.loadExtraJobSources = async function (roles, query, location, progress) {
-  let groups = await Promise.all([loadCompanyJobs(roles, progress), loadMuse(roles, progress), loadHackerNews(roles, progress), loadServerBoards(query, location, progress)]);
+  let groups = await Promise.all([loadCompanyJobs(roles, progress), loadMuse(roles, progress), loadHackerNews(roles, progress), loadServerBoards(query, location, progress), typeof loadJobIndex === "function" ? loadJobIndex(roles, progress) : []]);
   return groups.flat();
 };
 
