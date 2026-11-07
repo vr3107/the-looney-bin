@@ -57,6 +57,7 @@ Add keys as **Secret** (encrypted) for both Production and Preview. Secrets only
 | Source | How | Setup |
 | --- | --- | --- |
 | **Company career sites** | Each company's own job board, through the public APIs of the hiring systems they use: Greenhouse, Lever, Ashby, SmartRecruiters, Workable, Recruitee. Read directly by your browser. | None. 53 well-known companies are included (Stripe, Airbnb, Databricks, OpenAI, Snowflake, Waymo, DoorDash, …). |
+| **Job index** (about 1.2 million US jobs from company career sites on Greenhouse, Lever, Ashby, Workday, iCIMS, BambooHR and Paylocity) | A daily index built by `.github/workflows/jobs-index.yml` from the public dataset of [Riley-Dorrington/job-board-aggregator](https://github.com/Riley-Dorrington/job-board-aggregator) (MIT licensed) and published to the Cloudflare Pages project `looney-bin-jobs`. A search downloads only the file for the least common word in each role (usually under 1 MB). Each job links to its official posting. | GitHub repository secrets `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and `CLOUDFLARE_ACCOUNT_ID` for the daily workflow |
 | Dice | Dice's job search service (`/api/dice-search`) | None |
 | The Muse | Public API, read by the browser | None |
 | Jobicy, Arbeitnow, Remote OK, Remotive | Public remote-job feeds, read by the browser | None |
