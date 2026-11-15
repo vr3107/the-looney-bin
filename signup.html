@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Create your account · The Looney Bin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="auth.css" />
+  </head>
+  <body data-mode="signup">
+    <div class="auth">
+      <aside class="auth-side">
+        <a class="auth-brand" href="/signin"><span aria-hidden="true">✳</span> The <em>Looney Bin</em></a>
+        <div class="auth-pitch">
+          <h1>Your whole job search, in one calm place.</h1>
+          <ul>
+            <li><b>Find roles that fit</b>Search many job boards at once and see how well each job matches your resume.</li>
+            <li><b>Tailor your resume in a click</b>See your ATS score before and after, and download in your original format.</li>
+            <li><b>Track every application</b>Know which resume you sent where, and what to follow up on.</li>
+          </ul>
+        </div>
+        <p class="auth-foot">Your resumes and applications are private to your account.</p>
+      </aside>
+      <main class="auth-main">
+        <form class="auth-card" id="auth-form" novalidate>
+          <h2 id="auth-title"></h2>
+          <p class="auth-sub" id="auth-sub"></p>
+          <div id="google-box" class="google-box" hidden>
+            <div id="google-btn"></div>
+            <div class="auth-or"><span>or</span></div>
+          </div>
+          <label class="auth-field" data-only="signup">Your name<input id="f-name" name="name" autocomplete="name" maxlength="80" /></label>
+          <label class="auth-field">Email<input id="f-email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required /></label>
+          <label class="auth-field">Password
+            <span class="auth-pw"><input id="f-password" name="password" type="password" maxlength="200" required /><button type="button" id="pw-toggle" aria-label="Show password">Show</button></span>
+            <small data-only="signup" id="pw-hint">At least 10 characters. A few random words work well.</small>
+          </label>
+          <label class="auth-field" data-only="signup" id="invite-field" hidden>Invite code<input id="f-invite" name="invite" autocomplete="off" placeholder="LB-XXXX-XXXX-XXXX" maxlength="40" /></label>
+          <div class="auth-error" id="auth-error" role="alert" hidden></div>
+          <button class="auth-submit" id="auth-submit" type="submit"></button>
+          <p class="auth-switch" id="auth-switch"></p>
+        </form>
+      </main>
+    </div>
+    <script src="js/account-store.js"></script>
+    <script src="js/auth-pages.js"></script>
+  </body>
+</html>

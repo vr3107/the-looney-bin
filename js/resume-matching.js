@@ -170,7 +170,7 @@ function renderJobs() {
             .map((t) => `<span class="tag">${esc(t)}</span>`)
             .join(
               "",
-            )}${x.published ? `<span class="tag">Listed ${new Date(x.published).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>` : ""}</div><div class="jobfoot"><span>Source: <a href="https://remotive.com/remote-jobs" target="_blank" rel="noopener" style="color:var(--green)">Remotive</a></span><div style="display:flex;gap:7px"><button class="btn btn-sm" onclick="saveLive('${x.sourceId}')">Save role</button><a class="btn btn-sm btn-primary" style="text-decoration:none" href="${esc(x.url)}" target="_blank" rel="noopener">View & apply ↗</a></div></div></article>`,
+            )}${x.published ? `<span class="tag">Listed ${new Date(x.published).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>` : ""}</div><div class="jobfoot"><span>Source: <a href="https://remotive.com/remote-jobs" target="_blank" rel="noopener" style="color:var(--green)">Remotive</a></span><div style="display:flex;gap:7px"><button class="btn btn-sm" onclick="saveLive(decodeURIComponent('${encodeURIComponent(x.sourceId)}'))">Save role</button><a class="btn btn-sm btn-primary" style="text-decoration:none" href="${esc(x.url)}" target="_blank" rel="noopener">View & apply ↗</a></div></div></article>`,
       )
       .join("");
     return;
@@ -192,7 +192,7 @@ function renderJobs() {
               .slice(0, 4)
               .map((t) => `<span class="tag">${esc(t)}</span>`)
               .join("") || '<span class="tag">Added by you</span>'
-          }</div><div class="jobfoot"><span>${x.salary ? esc(x.salary) + " · " : ""}${statusPill(x.status)}</span><div style="display:flex;gap:7px"><button class="btn btn-sm" onclick="openDetails('${x.id}')">Details</button>${x.url ? `<a class="btn btn-sm" style="text-decoration:none" href="${esc(x.url)}" target="_blank" rel="noopener">Open role ↗</a>` : ""}</div></div></article>`;
+          }</div><div class="jobfoot"><span>${x.salary ? esc(x.salary) + " · " : ""}${statusPill(x.status)}</span><div style="display:flex;gap:7px"><button class="btn btn-sm" onclick="openDetails(decodeURIComponent('${encodeURIComponent(x.id)}'))">Details</button>${x.url ? `<a class="btn btn-sm" style="text-decoration:none" href="${esc(x.url)}" target="_blank" rel="noopener">Open role ↗</a>` : ""}</div></div></article>`;
         })
         .join("")
     : `<div class="empty" style="grid-column:1/-1"><div class="bigico">⌕</div><strong>No saved roles yet.</strong><p>Find live resume matches above, then save openings to track your next steps.</p><button class="btn btn-sm" style="margin-top:13px" onclick="openModal('job')">＋ Add a role manually</button></div>`;
