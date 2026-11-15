@@ -8,3 +8,13 @@ compatibility_date = "2025-09-01"
 
 [ai]
 binding = "AI"
+
+# Accounts: users, sessions, invites, and each person's saved data and resume files.
+[[d1_databases]]
+binding = "DB"
+database_name = "the-looney-bin"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[vars]
+# Google sign-in is switched on by putting the Google OAuth client ID here (it is public, not a secret).
+GOOGLE_CLIENT_ID = ""

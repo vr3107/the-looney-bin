@@ -12,6 +12,8 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
+    <script src="js/account-store.js"></script>
+    <script src="js/account-boot.js"></script>
   </head>
   <body>
     <div class="shell">
@@ -43,8 +45,9 @@
         </div>
         <div class="sidebottom">
           <div class="tip">
-            <b>✦ Your data stays yours</b>Your profile and applications are
-            saved only in this browser.
+            <b>✦ Your data stays yours</b>Your profile, resumes and
+            applications are saved privately to your account.
+            <span id="syncstate" class="syncstate" role="status" aria-live="polite"></span>
           </div>
         </div>
       </aside>
@@ -56,7 +59,7 @@
           </div>
           <div class="topactions">
             <span class="date" id="today"></span>
-            <div class="avatar" id="avatar">Y</div>
+            <button class="avatar" id="avatar" type="button" aria-haspopup="true" aria-label="Account menu">Y</button>
           </div>
         </header>
         <div class="content">
@@ -487,5 +490,6 @@
     <script src="js/ai-tailoring.js" defer></script>
     <script src="js/cover-letter.js" defer></script>
     <script src="js/tailor-studio.js" defer></script>
+    <script src="js/account-sync.js" defer></script>
   </body>
 </html>

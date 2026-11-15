@@ -132,3 +132,26 @@ Upload resumes as Word (.docx) or text-based PDF files. The original file is sto
 ## Find page filters
 
 The main search accepts job titles or company names, separated by commas; company-name hits are labeled **Company match** and rank with direct role matches. Matching is whole-word (so "AI" no longer matches "maintenance"), understands common abbreviations and synonyms (ML / machine learning, Sr. / Senior, SDE / software engineer, BI / business intelligence), ignores company suffixes (Inc, LLC), and tolerates small typos. Related titles (for example, Machine Learning Engineer for a Data Scientist search) rank after direct matches. Put a title in "quotes" to require it exactly, and prefix a word with - to exclude titles containing it. The matching logic lives in `js/search-relevance.js`. The filter row sits directly under the search bar. Results can be narrowed by job board (all boards or a single board), years of experience required, workplace (remote, hybrid, on-site), job type, experience level, posting age, and match score, plus a title/company search. Workplace, job type, level, and years are read from each posting's location, tags, and description, so postings that don't state them are excluded when that filter is set. Jobs can be hidden from results and viewed again under **Hidden jobs**.
+
+## Accounts
+
+Everyone signs in, and each person's profile, jobs, resumes, tailored versions and original resume files are private to their account.
+
+- **Pages:** `/signin` and `/signup` (`signin.html`, `signup.html`, `auth.css`, `js/auth-pages.js`). The app (`index.html`) sends signed-out visitors to `/signin`.
+- **Sign-up modes:** the first account created becomes the **owner**. After that sign-up is invite-only: the owner creates invite codes under the account menu → **Invite people**, and can switch sign-up to **Anyone (public)** or **closed** there.
+- **Sign-in methods:** email + password, and Google sign-in once `GOOGLE_CLIENT_ID` is set in `wrangler.toml` (create an OAuth “Web application” client in Google Cloud with `https://the-looney-bin.pages.dev` as an authorized JavaScript origin).
+- **Storage:** a Cloudflare D1 database bound as `DB` in `wrangler.toml`. Tables are created automatically on first use (`functions/_lib/core.js`). Data is stored one row per job/resume (`/api/state`); original DOCX/PDF files up to 1.9 MB are stored in `/api/files/:id`.
+- **Sync:** the app keeps a copy in the browser for speed and saves changes to the account about a second after each change (`js/account-sync.js`). Signing in on another device loads everything; signing out removes the browser copy.
+- **Moving old data:** data saved in a browser before accounts existed is moved into the first new account that signs in from that browser.
+- **Account menu** (top-right avatar): change name or password, download a copy of your data, delete your account, sign out.
+
+### Security
+
+- Passwords are hashed with PBKDF2-SHA256 (100,000 iterations, per-user salt); minimum 10 characters.
+- Sessions are random 256-bit tokens stored hashed, in an `HttpOnly; Secure; SameSite=Lax; __Host-` cookie, valid 30 days. Changing the password signs out other devices.
+- Every `/api` request that changes data must come from the site itself (Origin check) and be JSON; everything except sign-in/sign-up requires a session, including AI tailoring and job-board lookups.
+- Rate limits: sign-in 8 attempts per email and 30 per IP per 10 minutes; sign-up 10 per IP per hour; AI 60 requests per person per day (`AI_DAILY_LIMIT`).
+- Every query is scoped to the signed-in user's id; size limits apply to every request, item and file.
+- `_headers` sets a Content-Security-Policy, HSTS, `X-Frame-Options: DENY`, `nosniff`, Referrer-Policy and Permissions-Policy. Uploaded files are only ever served as downloads.
+- Values from job feeds are escaped before display; ids are strictly encoded inside click handlers, and `javascript:`/`data:` links are blocked.
+- Not yet included: “forgot password” emails (needs an email-sending service).

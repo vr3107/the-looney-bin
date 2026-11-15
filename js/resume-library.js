@@ -1,4 +1,4 @@
-const RESUME_DB = "jobloom-original-files";
+const RESUME_DB = window.LB_FILES_DB || "jobloom-original-files";
 function openResumeDb() {
   return new Promise((resolve, reject) => {
     let req = indexedDB.open(RESUME_DB, 1);

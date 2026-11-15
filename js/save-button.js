@@ -284,7 +284,7 @@ window.renderSaveButtonPanel = function () {
   if (!box) return;
   box.innerHTML = `<details class="company-panel"><summary><b>Save jobs from Dice, LinkedIn &amp; Indeed</b> · a one-click button for your browser</summary>
 <div class="save-steps">
-  <a class="save-bookmarklet" href="${esc(looneySaveButtonHref())}" onclick="event.preventDefault(); toast('Drag this button to your bookmarks bar, then click it on a job page.')" title="Drag me to your bookmarks bar">＋ Save to Looney Bin</a>
+  <a class="save-bookmarklet" data-lb-bookmarklet href="${esc(looneySaveButtonHref())}" onclick="event.preventDefault(); toast('Drag this button to your bookmarks bar, then click it on a job page.')" title="Drag me to your bookmarks bar">＋ Save to Looney Bin</a>
   <ol class="help">
     <li><b>Drag</b> the green button to your browser’s bookmarks bar (once). No bookmarks bar? Press Ctrl/⌘+Shift+B.</li>
     <li>Browse <b>Dice, LinkedIn, Indeed, ZipRecruiter or Glassdoor</b> as usual, signed in, with any filters. The “on Dice ↗ / on LinkedIn ↗” links above open your search there.</li>
