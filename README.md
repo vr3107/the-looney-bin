@@ -154,4 +154,9 @@ Everyone signs in, and each person's profile, jobs, resumes, tailored versions a
 - Every query is scoped to the signed-in user's id; size limits apply to every request, item and file.
 - `_headers` sets a Content-Security-Policy, HSTS, `X-Frame-Options: DENY`, `nosniff`, Referrer-Policy and Permissions-Policy. Uploaded files are only ever served as downloads.
 - Values from job feeds are escaped before display; ids are strictly encoded inside click handlers, and `javascript:`/`data:` links are blocked.
+- **Confidentiality, integrity, availability:**
+  - *Confidentiality* — each account's data is readable only with that account's session; the admin manages access (invites, suspend/restore) but has no way in the app to open anyone else's resumes, jobs or files.
+  - *Integrity* — every change is validated and tied to the signed-in user; each account has a sign-in activity log (sign-ins, failed attempts, password changes) and can sign out all other devices.
+  - *Availability* — a copy is kept in the browser so the app works through connection drops and retries saving; anyone can download their data; the admin account can't be suspended or deleted while others exist.
+- The first account is the **admin** (stored as role `owner`).
 - Not yet included: “forgot password” emails (needs an email-sending service).

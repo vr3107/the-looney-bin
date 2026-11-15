@@ -20,12 +20,18 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS docs (user_id TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL, json TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, kind, id))`,
   `CREATE TABLE IF NOT EXISTS files (user_id TEXT NOT NULL, id TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', type TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL, bytes BLOB NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, id))`,
   `CREATE TABLE IF NOT EXISTS rate (key TEXT PRIMARY KEY, window_start INTEGER NOT NULL, count INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, type TEXT NOT NULL, ip TEXT NOT NULL DEFAULT '', ua TEXT NOT NULL DEFAULT '', at INTEGER NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS events_user ON events(user_id, id)`,
   `CREATE TABLE IF NOT EXISTS usage (user_id TEXT NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (user_id, day, kind))`,
 ];
 let schemaReady;
 // Creates the tables on first use, so no manual database setup is needed.
 export function ensureSchema(db) {
-  schemaReady ||= db.batch(SCHEMA.map((sql) => db.prepare(sql))).catch((e) => {
+  schemaReady ||= db
+    .batch(SCHEMA.map((sql) => db.prepare(sql)))
+    // Columns added after the first release; "duplicate column" just means it's already there.
+    .then(() => db.prepare("ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0").run().catch(() => {}))
+    .catch((e) => {
     schemaReady = null;
     throw e;
   });
@@ -94,7 +100,7 @@ export async function getSessionUser(db, request) {
   const token = sessionToken(request);
   if (!token) return null;
   const row = await db
-    .prepare("SELECT u.id, u.email, u.name, u.role, u.rev, u.google_sub, u.pw_hash IS NOT NULL AS has_password, s.token_hash FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?")
+    .prepare("SELECT u.id, u.email, u.name, u.role, u.rev, u.google_sub, u.pw_hash IS NOT NULL AS has_password, s.token_hash FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ? AND u.disabled = 0")
     .bind(await sha256Hex(token), now())
     .first();
   return row || null;
@@ -116,6 +122,13 @@ export async function rateOk(db, key, limit, windowSeconds) {
     .first();
   if (Math.random() < 0.02) await db.prepare("DELETE FROM rate WHERE window_start < ?").bind(t - 86400).run();
   return (row?.count || 1) <= limit;
+}
+// Security history shown to each person in their account settings (kept to their latest 60 entries).
+export async function logEvent(db, request, userId, type) {
+  try {
+    await db.prepare("INSERT INTO events (user_id, type, ip, ua, at) VALUES (?, ?, ?, ?, ?)").bind(userId, type, clientIp(request), (request.headers.get("User-Agent") || "").slice(0, 200), now()).run();
+    if (Math.random() < 0.1) await db.prepare("DELETE FROM events WHERE user_id = ?1 AND id NOT IN (SELECT id FROM events WHERE user_id = ?1 ORDER BY id DESC LIMIT 60)").bind(userId).run();
+  } catch {}
 }
 export const clientIp = (request) => request.headers.get("CF-Connecting-IP") || "unknown";
 

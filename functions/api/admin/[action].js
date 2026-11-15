@@ -1,5 +1,5 @@
 // Owner-only: invite codes, who can sign up, and the list of people with accounts.
-import { json, fail, readJson, now, sha256Hex, getSetting } from "../../_lib/core.js";
+import { json, fail, readJson, now, sha256Hex, getSetting, logEvent } from "../../_lib/core.js";
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function newCode() {
@@ -12,7 +12,7 @@ export async function onRequestGet({ env, data, params }) {
   if (!owner(data)) return fail("owner_only", 403);
   if (params.action !== "overview") return fail("not_found", 404);
   const db = env.DB,
-    [users, invites] = await db.batch([db.prepare("SELECT name, email, role, created_at, last_login FROM users ORDER BY created_at LIMIT 500"), db.prepare("SELECT substr(code_hash, 1, 16) AS id, label, max_uses, uses, created_at, expires_at FROM invites ORDER BY created_at DESC LIMIT 200")]);
+    [users, invites] = await db.batch([db.prepare("SELECT id, name, email, role, disabled, created_at, last_login FROM users ORDER BY created_at LIMIT 500"), db.prepare("SELECT substr(code_hash, 1, 16) AS id, label, max_uses, uses, created_at, expires_at FROM invites ORDER BY created_at DESC LIMIT 200")]);
   return json({ signupMode: await getSetting(db, "signup_mode", "invite"), users: users.results, invites: invites.results });
 }
 export async function onRequestPost({ request, env, data, params }) {
@@ -33,6 +33,17 @@ export async function onRequestPost({ request, env, data, params }) {
     if (!/^[0-9a-f]{16}$/.test(String(body.id))) return fail("invalid_id");
     await db.prepare("DELETE FROM invites WHERE substr(code_hash, 1, 16) = ?").bind(body.id).run();
     return json({ ok: true });
+  }
+  if (params.action === "suspend") {
+    // Suspending blocks sign-in and signs the person out everywhere; their data is kept and can be restored.
+    if (!/^[0-9a-f]{8,64}$/.test(String(body.id))) return fail("invalid_id");
+    const target = await db.prepare("SELECT id, role FROM users WHERE id = ?").bind(body.id).first();
+    if (!target) return fail("not_found", 404);
+    if (target.role === "owner") return fail("cannot_suspend_admin", 409);
+    const off = body.suspended ? 1 : 0;
+    await db.batch([db.prepare("UPDATE users SET disabled = ? WHERE id = ?").bind(off, target.id), ...(off ? [db.prepare("DELETE FROM sessions WHERE user_id = ?").bind(target.id)] : [])]);
+    await logEvent(db, request, target.id, off ? "suspended_by_admin" : "restored_by_admin");
+    return json({ ok: true, suspended: !!off });
   }
   if (params.action === "signup-mode") {
     if (!["invite", "open", "closed"].includes(body.mode)) return fail("invalid_mode");

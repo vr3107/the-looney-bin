@@ -1,5 +1,5 @@
 // Account endpoints: /api/auth/{config,me,signup,signin,google,signout,password,delete}
-import { json, fail, readJson, now, uid, sha256Hex, hashPassword, verifyPassword, normEmail, validEmail, passwordProblem, cleanName, createSession, clearCookie, sessionToken, publicUser, rateOk, clientIp, getSetting } from "../../_lib/core.js";
+import { json, fail, readJson, now, uid, sha256Hex, hashPassword, verifyPassword, normEmail, validEmail, passwordProblem, cleanName, createSession, clearCookie, sessionToken, publicUser, rateOk, clientIp, getSetting, logEvent } from "../../_lib/core.js";
 
 const normInvite = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 async function signupMode(db) {
@@ -50,6 +50,7 @@ async function signup({ request, env }) {
   } catch {
     return fail("email_taken", 409);
   }
+  await logEvent(db, request, user.id, "account_created");
   return signedIn(db, user, 201);
 }
 
@@ -61,7 +62,12 @@ async function signin({ request, env }) {
     password = typeof body.password === "string" ? body.password.slice(0, 200) : "";
   if (!(await rateOk(db, "signin-ip:" + clientIp(request), 30, 600)) || !(await rateOk(db, "signin:" + email.slice(0, 254), 8, 600))) return fail("rate_limited", 429);
   const user = validEmail(email) ? await db.prepare("SELECT * FROM users WHERE email = ?").bind(email).first() : null;
-  if (!(await verifyPassword(password, user))) return fail("credentials_invalid", 401);
+  if (!(await verifyPassword(password, user))) {
+    if (user) await logEvent(db, request, user.id, "signin_failed");
+    return fail("credentials_invalid", 401);
+  }
+  if (user.disabled) return fail("account_suspended", 403);
+  await logEvent(db, request, user.id, "signin");
   return signedIn(db, user);
 }
 
@@ -105,7 +111,10 @@ async function google({ request, env }) {
     if (g.hash && !(await useInvite(db, g.hash))) return fail("invite_invalid", 403);
     user = { id: uid(), email, name: cleanName(claims.name) || email.split("@")[0], role: mode === "first" ? "owner" : "user" };
     await db.prepare("INSERT INTO users (id, email, name, google_sub, role, created_at) VALUES (?, ?, ?, ?, ?, ?)").bind(user.id, email, user.name, claims.sub, user.role, now()).run();
+    await logEvent(db, request, user.id, "account_created");
   }
+  if (user.disabled) return fail("account_suspended", 403);
+  await logEvent(db, request, user.id, "signin_google");
   return signedIn(db, user);
 }
 
@@ -127,7 +136,15 @@ async function password({ request, env, data }) {
   const h = await hashPassword(body.next);
   // Changing the password signs out every other device.
   await db.batch([db.prepare("UPDATE users SET pw_hash = ?, pw_salt = ?, pw_iter = ? WHERE id = ?").bind(h.pw_hash, h.pw_salt, h.pw_iter, user.id), db.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?").bind(user.id, data.user.token_hash)]);
+  await logEvent(db, request, user.id, "password_changed");
   return json({ ok: true });
+}
+
+// Sign out every device except the one making the request.
+async function signoutOthers({ request, env, data }) {
+  const r = await env.DB.prepare("DELETE FROM sessions WHERE user_id = ? AND token_hash != ?").bind(data.user.id, data.user.token_hash).run();
+  await logEvent(env.DB, request, data.user.id, "signed_out_other_devices");
+  return json({ ok: true, removed: r.meta.changes });
 }
 
 async function profile({ request, env, data }) {
@@ -147,7 +164,7 @@ async function remove({ request, env, data }) {
   if (body.confirm !== "DELETE") return fail("confirm_required");
   if (user.pw_hash && !(await verifyPassword(String(body.password || "").slice(0, 200), user))) return fail("credentials_invalid", 401);
   if (user.role === "owner" && (await db.prepare("SELECT COUNT(*) AS n FROM users").first()).n > 1) return fail("owner_cannot_delete", 409);
-  await db.batch(["docs", "files", "sessions", "usage"].map((t) => db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(user.id)).concat(db.prepare("DELETE FROM users WHERE id = ?").bind(user.id)));
+  await db.batch(["docs", "files", "sessions", "usage", "events"].map((t) => db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(user.id)).concat(db.prepare("DELETE FROM users WHERE id = ?").bind(user.id)));
   return json({ ok: true }, 200, { "Set-Cookie": clearCookie() });
 }
 
@@ -156,10 +173,16 @@ export async function onRequestGet({ params, env, data }) {
     const mode = await signupMode(env.DB);
     return json({ signup: mode === "first" ? "open" : mode, firstAccount: mode === "first", googleClientId: env.GOOGLE_CLIENT_ID || "" });
   }
+  if (params.action === "security") {
+    if (!data.user) return fail("sign_in_required", 401);
+    const db = env.DB,
+      [sessions, events] = await db.batch([db.prepare("SELECT token_hash, created_at FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 30").bind(data.user.id, now()), db.prepare("SELECT type, ip, ua, at FROM events WHERE user_id = ? ORDER BY id DESC LIMIT 25").bind(data.user.id)]);
+    return json({ sessions: sessions.results.map((s) => ({ created_at: s.created_at, current: s.token_hash === data.user.token_hash })), events: events.results });
+  }
   if (params.action === "me") return json(data.user ? { user: publicUser(data.user), rev: data.user.rev } : { user: null });
   return fail("not_found", 404);
 }
 export async function onRequestPost(context) {
-  const handler = { signup, signin, google, signout, password, profile, delete: remove }[context.params.action];
+  const handler = { signup, signin, google, signout, password, profile, delete: remove, "signout-others": signoutOthers }[context.params.action];
   return handler ? handler(context) : fail("not_found", 404);
 }
