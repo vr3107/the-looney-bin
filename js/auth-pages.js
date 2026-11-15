@@ -14,6 +14,7 @@
     name_required: "Enter your name.",
     invite_invalid: "That invite code isn’t valid, has expired, or has already been used.",
     signup_closed: "New sign-ups are closed right now.",
+    account_suspended: "This account has been suspended. Contact the site admin.",
     google_invalid: "Google sign-in didn’t work. Please try again.",
     accounts_not_configured: "Accounts aren’t set up on this site yet.",
     same_origin_required: "This request was blocked. Reload the page and try again.",

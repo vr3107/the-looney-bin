@@ -225,7 +225,7 @@
     if (el("lb-menu")) return closeMenu();
     document.body.insertAdjacentHTML(
       "beforeend",
-      `<div id="lb-menu" class="lb-menu" role="menu"><div class="lb-menu-who"><b>${esc(user.name)}</b><span>${esc(user.email)}</span></div><button role="menuitem" data-act="settings">Account settings</button>${user.role === "owner" ? '<button role="menuitem" data-act="invites">Invite people</button>' : ""}<button role="menuitem" data-act="signout">Sign out</button></div>`,
+      `<div id="lb-menu" class="lb-menu" role="menu"><div class="lb-menu-who"><b>${esc(user.name)}${user.role === "owner" ? ' <i class="lb-badge">Admin</i>' : ""}</b><span>${esc(user.email)}</span></div><button role="menuitem" data-act="settings">Account settings</button>${user.role === "owner" ? '<button role="menuitem" data-act="invites">Admin: people and invites</button>' : ""}<button role="menuitem" data-act="signout">Sign out</button></div>`,
     );
     el("lb-menu").onclick = (e) => {
       let act = e.target.closest("[data-act]")?.dataset.act;
@@ -260,20 +260,22 @@
     rate_limited: "Too many attempts. Wait a few minutes and try again.",
     owner_cannot_delete: "As the owner, you can’t delete your account while other people still have accounts.",
     name_required: "Enter your name.",
+    cannot_suspend_admin: "The admin account can’t be suspended.",
   };
   const msg = (r) => r.data.message || ERR[r.data.error] || "Something went wrong. Please try again.";
   const when = (t) => (t ? new Date(t * 1000).toLocaleDateString() : "—");
   async function openSettings(tab) {
     let admin = user.role === "owner" ? (await lbApi("/api/admin/overview")).data : null;
-    el("modalroot").innerHTML = `<div class="modalback" id="lb-settings-back"><div class="modal lb-settings"><div class="modalhead"><div><div class="eyebrow">ACCOUNT</div><h2>${tab === "invites" ? "Invite people" : "Account settings"}</h2><div class="sub">${esc(user.email)}</div></div><button class="x" id="lb-x" aria-label="Close">×</button></div>
+    el("modalroot").innerHTML = `<div class="modalback" id="lb-settings-back"><div class="modal lb-settings"><div class="modalhead"><div><div class="eyebrow">ACCOUNT</div><h2>${tab === "invites" ? "People and invites" : "Account settings"}</h2><div class="sub">${esc(user.email)}</div></div><button class="x" id="lb-x" aria-label="Close">×</button></div>
 ${
   tab === "invites" && admin
     ? `<div class="lb-sec"><h3>Who can create an account</h3><div class="lb-row"><select id="lb-mode"><option value="invite">Only people with an invite code</option><option value="open">Anyone (public sign-up)</option><option value="closed">No one (sign-up closed)</option></select><button class="btn btn-sm" id="lb-mode-save">Save</button></div></div>
 <div class="lb-sec"><h3>Create an invite</h3><div class="lb-row"><input id="lb-inv-label" placeholder="Who is it for? (optional)" maxlength="80"><select id="lb-inv-uses"><option value="1">1 person</option><option value="5">5 people</option><option value="20">20 people</option></select><button class="btn btn-sm btn-primary" id="lb-inv-make">Create invite</button></div><div id="lb-inv-new"></div>
 <div class="lb-list">${admin.invites.length ? admin.invites.map((i) => `<div><span><b>${esc(i.label || "Invite")}</b> · used ${i.uses} of ${i.max_uses} · expires ${when(i.expires_at)}</span><button class="btn btn-sm" data-revoke="${esc(i.id)}">Revoke</button></div>`).join("") : '<p class="help">No invites yet.</p>'}</div></div>
-<div class="lb-sec"><h3>People with accounts · ${admin.users.length}</h3><div class="lb-list">${admin.users.map((u) => `<div><span><b>${esc(u.name)}</b> · ${esc(u.email)}${u.role === "owner" ? " · owner" : ""}</span><span class="help">joined ${when(u.created_at)}</span></div>`).join("")}</div></div>`
+<div class="lb-sec"><h3>People with accounts · ${admin.users.length}</h3><div class="lb-list">${admin.users.map((u) => `<div><span><b>${esc(u.name)}</b> · ${esc(u.email)}${u.role === "owner" ? ' · <i class="lb-badge">Admin</i>' : ""}${u.disabled ? ' · <i class="lb-badge off">Suspended</i>' : ""}<br><span class="help">joined ${when(u.created_at)} · last sign-in ${when(u.last_login)}</span></span>${u.role === "owner" ? "" : `<button class="btn btn-sm" data-suspend="${esc(u.id)}" data-on="${u.disabled ? 0 : 1}">${u.disabled ? "Restore access" : "Suspend"}</button>`}</div>`).join("")}</div><p class="help">As admin you manage who has access. You can’t see other people’s resumes, jobs or files.</p></div>`
     : `<div class="lb-sec"><h3>Your name</h3><div class="lb-row"><input id="lb-name" value="${esc(user.name)}" maxlength="80" autocomplete="name"><button class="btn btn-sm" id="lb-name-save">Save</button></div></div>
 <div class="lb-sec"><h3>${user.hasPassword ? "Change password" : "Set a password"}</h3>${user.hasPassword ? '<input id="lb-pw-cur" type="password" placeholder="Current password" autocomplete="current-password">' : ""}<input id="lb-pw-new" type="password" placeholder="New password (at least 10 characters)" autocomplete="new-password"><div class="lb-row"><button class="btn btn-sm" id="lb-pw-save">Update password</button><span class="help">Other devices will be signed out.</span></div></div>
+<div class="lb-sec"><h3>Sign-in activity</h3><div id="lb-activity" class="lb-list lb-activity"><p class="help">Loading…</p></div><div class="lb-row"><button class="btn btn-sm" id="lb-others">Sign out all other devices</button><span class="help" id="lb-devices"></span></div></div>
 <div class="lb-sec"><h3>Your data</h3><div class="lb-row"><button class="btn btn-sm" id="lb-export">Download a copy of my data</button></div></div>
 <div class="lb-sec lb-danger"><h3>Delete account</h3><p class="help">Permanently deletes your account and everything saved in it. This can’t be undone.</p>${user.hasPassword ? '<input id="lb-del-pw" type="password" placeholder="Your password" autocomplete="current-password">' : ""}<div class="lb-row"><input id="lb-del-confirm" placeholder="Type DELETE to confirm" autocomplete="off"><button class="btn btn-sm" id="lb-del">Delete my account</button></div></div>`
 }
@@ -309,6 +311,30 @@ ${
           else status(msg(r), true);
         }),
     );
+    document.querySelectorAll("[data-suspend]").forEach(
+      (b) =>
+        (b.onclick = async () => {
+          let r = await lbApi("/api/admin/suspend", { method: "POST", body: { id: b.dataset.suspend, suspended: b.dataset.on === "1" } });
+          if (r.ok) openSettings("invites");
+          else status(msg(r), true);
+        }),
+    );
+    async function loadActivity() {
+      if (!el("lb-activity")) return;
+      let r = await lbApi("/api/auth/security");
+      if (!r.ok) return (el("lb-activity").innerHTML = '<p class="help">Couldn’t load activity.</p>');
+      const LABEL = { account_created: "Account created", signin: "Signed in", signin_google: "Signed in with Google", signin_failed: "Failed sign-in attempt (wrong password)", password_changed: "Password changed", signed_out_other_devices: "Signed out other devices", suspended_by_admin: "Access suspended by admin", restored_by_admin: "Access restored by admin" },
+        device = (ua) => (/iPhone|iPad/.test(ua) ? "iPhone/iPad" : /Android/.test(ua) ? "Android" : /Mac OS/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "Unknown device") + (/Edg\//.test(ua) ? " · Edge" : /Chrome\//.test(ua) ? " · Chrome" : /Firefox\//.test(ua) ? " · Firefox" : /Safari\//.test(ua) ? " · Safari" : "");
+      el("lb-activity").innerHTML = r.data.events.length ? r.data.events.map((e) => `<div class="${e.type === "signin_failed" ? "warn" : ""}"><span><b>${esc(LABEL[e.type] || e.type)}</b><br><span class="help">${esc(device(e.ua))} · ${esc(e.ip)}</span></span><span class="help">${esc(new Date(e.at * 1000).toLocaleString())}</span></div>`).join("") : '<p class="help">No activity recorded yet.</p>';
+      let n = r.data.sessions.length;
+      el("lb-devices").textContent = `Signed in on ${n} device${n === 1 ? "" : "s"} right now.`;
+    }
+    loadActivity();
+    on("lb-others", async () => {
+      let r = await lbApi("/api/auth/signout-others", { method: "POST", body: {} });
+      status(r.ok ? `Signed out ${r.data.removed} other device${r.data.removed === 1 ? "" : "s"}.` : msg(r), !r.ok);
+      loadActivity();
+    });
     on("lb-name-save", async () => {
       let r = await lbApi("/api/auth/profile", { method: "POST", body: { name: el("lb-name").value } });
       if (!r.ok) return status(msg(r), true);
