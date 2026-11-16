@@ -138,7 +138,8 @@ async function runLimited(items, limit, fn) {
   return out;
 }
 // roles: [{ raw, ... }] from parseJobSearch; returns matching postings with descriptions.
-async function loadCompanyJobs(roles, progress = () => {}) {
+// area: the place search in force, if any (js/geo-search.js).
+async function loadCompanyJobs(roles, progress = () => {}, area = null) {
   let boards = companyBoards(),
     names = roles.map((r) => r.raw || r).filter(Boolean),
     done = 0,
@@ -160,6 +161,8 @@ async function loadCompanyJobs(roles, progress = () => {}) {
   });
   let all = lists.flat(),
     matched = names.length ? all.filter((j) => names.some((role) => roleRelevance(j, role) > 0)) : all.slice(0, 300);
+  // Outside the search area: dropped here, before any descriptions are fetched for them.
+  if (area) matched = matched.filter((j) => area.within(j));
   // Fetch full descriptions for the best title matches (needed to rank against the resume).
   let need = matched
     .filter((j) => j.needsDetails)
@@ -203,7 +206,7 @@ const MUSE_CATEGORIES = [
   [/design|ux|ui/, ["Design and UX"]],
   [/sap|erp|consultant/, ["IT", "Software Engineering"]],
 ];
-async function loadMuse(roles, progress) {
+async function loadMuse(roles, progress, area = null) {
   let q = roles.map((r) => r.raw || r).join(" ").toLowerCase(),
     cats = [...new Set(MUSE_CATEGORIES.filter(([re]) => re.test(q)).flatMap(([, c]) => c))].slice(0, 3);
   if (!cats.length) cats = ["Software Engineering", "Data and Analytics"];
@@ -213,6 +216,8 @@ async function loadMuse(roles, progress) {
     for (let page = 0; page < 4; page++) {
       let params = new URLSearchParams({ page: String(page) });
       cats.forEach((c) => params.append("category", c));
+      // A place search asks for the main towns in the area ("Cleveland, OH"), The Muse's own format.
+      if (area) area.towns(6).forEach((town) => params.append("location", town));
       let d = await getJson(`https://www.themuse.com/api/public/jobs?${params}`);
       out.push(
         ...(d.results || []).map((j) =>
@@ -271,10 +276,11 @@ async function loadHackerNews(roles, progress) {
 }
 window.hnJob = hnJob;
 // Himalayas (no browser access) and Jooble / Google Jobs / USAJOBS (keys) go through /api/boards.
-async function loadServerBoards(query, location, progress) {
+async function loadServerBoards(query, location, progress, area = null) {
   progress("Loading Himalayas, Google Jobs, Jooble and USAJOBS…");
   try {
-    let r = await fetch("/api/boards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, location }) }),
+    // A place search sends the town (both "Cleveland, OH" and "Cleveland, Ohio") and the distance in miles.
+    let r = await fetch("/api/boards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(area ? { query, location: area.town, locationLong: area.townLong, radius: area.townRadius } : { query, location }) }),
       d = await r.json();
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
     let jobs = (d.jobs || []).map((j) => {
@@ -294,8 +300,8 @@ async function loadServerBoards(query, location, progress) {
     return [];
   }
 }
-window.loadExtraJobSources = async function (roles, query, location, progress) {
-  let groups = await Promise.all([loadCompanyJobs(roles, progress), loadMuse(roles, progress), loadHackerNews(roles, progress), loadServerBoards(query, location, progress), typeof loadJobIndex === "function" ? loadJobIndex(roles, progress) : []]);
+window.loadExtraJobSources = async function (roles, query, location, progress, area = null) {
+  let groups = await Promise.all([loadCompanyJobs(roles, progress, area), loadMuse(roles, progress, area), loadHackerNews(roles, progress), loadServerBoards(query, location, progress, area), typeof loadJobIndex === "function" ? loadJobIndex(roles, progress, area) : []]);
   return groups.flat();
 };
 

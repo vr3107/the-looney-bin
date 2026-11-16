@@ -15,6 +15,7 @@ function ensureTrackedJob(job) {
   };
   delete copy.match;
   delete copy.matchTerms;
+  delete copy.distance; // miles from a place search's centre: never stored with the job
   data.jobs.push(copy);
   return copy;
 }

@@ -178,20 +178,60 @@
                 ＋ Add a job
               </button>
             </div>
-            <div class="searchbox">
-              <span style="padding: 7px 3px 7px 7px; color: #79837a">⌕</span
-              ><input
-                id="query"
-                placeholder="Job titles or company names, separated by commas — e.g. Data Scientist, Capital One"
-              /><input
-                id="location"
-                placeholder="U.S. location or state"
-                list="us-location-options"
-                style="max-width: 180px"
-              /><button class="btn btn-primary" onclick="searchBoards()">
-                Find resume matches
-              </button>
+            <div class="searchbox searchbox-stack">
+              <div class="search-row">
+                <span class="search-ico" aria-hidden="true">⌕</span
+                ><input
+                  id="query"
+                  aria-label="Job titles or company names"
+                  placeholder="Job titles or company names, separated by commas — e.g. Data Scientist, Capital One"
+                /><button class="btn btn-primary" onclick="searchBoards()">
+                  Find resume matches
+                </button>
+              </div>
+              <div class="search-row search-where">
+                <svg class="search-ico where-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.5" /></svg
+                ><input
+                  id="location"
+                  class="where-state"
+                  aria-label="State, or United States"
+                  placeholder="State, or United States"
+                  list="us-location-options"
+                />
+                <div class="place-wrap">
+                  <input
+                    id="place"
+                    type="text"
+                    role="combobox"
+                    aria-label="City, town or ZIP code"
+                    aria-autocomplete="list"
+                    aria-expanded="false"
+                    aria-controls="placesuggest"
+                    autocomplete="off"
+                    spellcheck="false"
+                    maxlength="80"
+                    placeholder="City, town or ZIP code"
+                  /><button type="button" class="place-clear" id="placeclear" aria-label="Clear the place" hidden>×</button>
+                  <div class="place-suggest" id="placesuggest" role="listbox" aria-label="Matching places" hidden></div>
+                </div>
+                <select id="radius" class="where-radius" aria-label="Distance from the place">
+                  <option value="0">Only this place</option>
+                  <option value="10">Within 10 miles</option>
+                  <option value="15">Within 15 miles</option>
+                  <option value="20">Within 20 miles</option>
+                  <option value="25" selected>Within 25 miles</option>
+                  <option value="35">Within 35 miles</option>
+                  <option value="50">Within 50 miles</option>
+                  <option value="75">Within 75 miles</option>
+                  <option value="100">Within 100 miles</option>
+                </select>
+                <button type="button" class="btn nearme" id="nearme" title="Find jobs around where you are now">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.5" /><circle cx="12" cy="12" r="2" /><path d="M12 2v3.5M12 18.5V22M2 12h3.5M18.5 12H22" /></svg
+                  >Near me
+                </button>
+              </div>
             </div>
+            <div class="help place-status" id="placestatus" role="status" aria-live="polite" hidden></div>
             <div class="help search-tips">
               Search job titles or company names, separated by commas. Use
               <b>"quotes"</b> for an exact title and <b>-word</b> to exclude
@@ -272,7 +312,8 @@
                 <input id="resultsearch" type="search" placeholder="Filter results by title or company" oninput="applyJobFilters()" aria-label="Filter results by title or company" />
                 <select id="sortfilter" onchange="renderJobs()" aria-label="Sort">
                   <option value="match">Best match</option>
-                  <option value="recent">Newest first</option></select>
+                  <option value="recent">Newest first</option>
+                  <option value="nearest" hidden disabled>Nearest first</option></select>
               </div>
             </div>
             <datalist id="us-location-options">
@@ -286,9 +327,18 @@
               external job search.
               Choose United States, a state, Remote (US), or Hybrid (US) to
               keep listings in that U.S. scope. Worldwide remote roles are
-              included when they accept applicants from anywhere. Feed coverage
-              varies by source. Your resume stays in this
-              browser; only public listings are fetched. Match % is resume
+              included when they accept applicants from anywhere. To search
+              one area instead, add a city, town or ZIP code and a distance, or
+              press <b>Near me</b>: only postings that name a town inside that
+              distance are shown (remote and state-wide postings are left
+              out), measured between town centres. Near me uses your
+              browser’s location once; your position stays on this device and
+              job boards are only asked about the nearest town. Place names
+              come from
+              <a href="https://www.geonames.org/" target="_blank" rel="noopener" style="color: inherit">GeoNames</a>
+              (CC BY 4.0). Feed coverage
+              varies by source. Your resume is compared with listings in this
+              browser and is never sent to a job board. Match % is resume
               keyword overlap, not an ATS or hiring prediction. Sources update
               on their own schedules, so a new posting may not appear instantly.
             </div>
@@ -471,6 +521,7 @@
     <script src="js/app-core.js" defer></script>
     <script src="js/job-details.js" defer></script>
     <script src="js/location-matching.js" defer></script>
+    <script src="js/geo-search.js" defer></script>
     <script src="js/resume-matching.js" defer></script>
     <script src="js/profile-resumes.js" defer></script>
     <script src="js/search-relevance.js" defer></script>
@@ -479,6 +530,7 @@
     <script src="js/job-index.js" defer></script>
     <script src="js/save-button.js" defer></script>
     <script src="js/job-cards.js" defer></script>
+    <script src="js/place-search.js" defer></script>
     <script src="js/resume-library.js" defer></script>
     <script src="js/resume-analysis.js" defer></script>
     <script src="js/docx-export.js" defer></script>
