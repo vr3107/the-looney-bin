@@ -1,5 +1,7 @@
 // Job boards that can't be read from the browser: Himalayas (no browser access), and
 // Jooble, Google Jobs and USAJOBS (need API keys). POST /api/boards { query, location }
+// A place search in the app adds { locationLong: "Cleveland, Ohio", radius: miles }, and each
+// board is then asked for that town and the closest distance it supports.
 // Optional Cloudflare Pages secrets: JOOBLE_API_KEY (jooble.org/api/about), SERPAPI_API_KEY (serpapi.com: Google Jobs, which
 // gathers postings from LinkedIn, Indeed, Dice, ZipRecruiter, Glassdoor and company sites).
 // A board without its key is skipped.
@@ -62,10 +64,14 @@ async function himalayas() {
 }
 // US federal jobs: USAJOBS Search API. Secrets USAJOBS_API_KEY + USAJOBS_EMAIL (the email you
 // registered at developer.usajobs.gov, which USAJOBS requires in the User-Agent header).
-async function usajobs(env, query, location) {
+async function usajobs(env, query, location, place) {
   if (!env.USAJOBS_API_KEY || !env.USAJOBS_EMAIL || !query) return null;
   const params = new URLSearchParams({ Keyword: query, ResultsPerPage: "50", SortField: "opendate", SortDirection: "Desc" });
-  if (/^remote/i.test(location || "")) params.set("RemoteIndicator", "True");
+  if (place) {
+    // USAJOBS writes places as "Atlanta, Georgia"; Radius is in miles.
+    params.set("LocationName", place.long);
+    params.set("Radius", String(Math.max(place.radius, 5)));
+  } else if (/^remote/i.test(location || "")) params.set("RemoteIndicator", "True");
   else if (location && !/^(united states|usa|us)$/i.test(location)) params.set("LocationName", location);
   const d = await getJson(`https://data.usajobs.gov/api/search?${params}`, { headers: { "Authorization-Key": env.USAJOBS_API_KEY, "User-Agent": env.USAJOBS_EMAIL } });
   return (d.SearchResult?.SearchResultItems || []).map((item) => {
@@ -86,12 +92,15 @@ async function usajobs(env, query, location) {
   });
 }
 // Google Jobs through SerpApi. One search per request (free plan: 250 a month), cached for 6 hours.
-async function googleJobs(env, query, location) {
+async function googleJobs(env, query, location, place) {
   if (!env.SERPAPI_API_KEY || !query) return null;
-  const remote = /^remote/i.test(location || "");
+  const remote = !place && /^remote/i.test(location || "");
   const params = new URLSearchParams({ engine: "google_jobs", q: remote ? `${query} remote` : query, hl: "en", gl: "us" });
-  params.set("location", remote || !location ? "United States" : location);
+  params.set("location", place ? `${place.long}, United States` : remote || !location ? "United States" : location);
   if (remote) params.set("ltype", "1");
+  // Distance in kilometres, in three steps (15, 35 and 100 miles) so nearby choices in the app share
+  // one cached search instead of each using up a search from the monthly allowance.
+  if (place) params.set("lrad", String(place.radius <= 15 ? 24 : place.radius <= 35 ? 56 : 161));
   const cacheKey = new Request(`https://cache.the-looney-bin.local/google-jobs?${params}`);
   const cache = globalThis.caches?.default;
   let d = cache ? await cache.match(cacheKey).then((r) => r?.json()).catch(() => null) : null;
@@ -128,12 +137,17 @@ function postedAgo(s) {
   const ms = { minute: 6e4, hour: 36e5, day: 864e5, week: 6048e5, month: 2592e6 }[m[2].toLowerCase()];
   return new Date(Date.now() - Number(m[1]) * ms).toISOString();
 }
-async function jooble(env, query, location) {
+// Jooble takes a distance only as one of these values in kilometres; each stands for a round number of miles.
+const JOOBLE_RADIUS = [[0, "0"], [2.5, "4"], [5, "8"], [10, "16"], [16, "26"], [25, "40"], [50, "80"]];
+async function jooble(env, query, location, place) {
   if (!env.JOOBLE_API_KEY) return null;
+  const search = { keywords: query, location: /^remote/i.test(location || "") ? "" : location || "", page: 1 };
+  // The closest Jooble distance that covers the miles asked for (80 km, about 50 miles, is its widest).
+  if (place) search.radius = (JOOBLE_RADIUS.find(([miles]) => miles >= place.radius) || JOOBLE_RADIUS[JOOBLE_RADIUS.length - 1])[1];
   const d = await getJson(`https://jooble.org/api/${env.JOOBLE_API_KEY}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keywords: query, location: /^remote/i.test(location || "") ? "" : location || "", page: 1 }),
+    body: JSON.stringify(search),
   });
   return (d.jobs || []).map((j) => ({
     source: "Jooble",
@@ -151,11 +165,16 @@ async function jooble(env, query, location) {
 export async function onRequestPost({ request, env }) {
   if (!allowedOrigin(request)) return json({ error: "same_origin_required" }, 403);
   if (!withinRateLimit(request.headers.get("CF-Connecting-IP") || "unknown")) return json({ error: "rate_limited" }, 429);
-  const body = await request.json().catch(() => ({}));
+  const body = (await request.json().catch(() => null)) || {};
   const query = String(body.query || "").slice(0, 200),
     location = String(body.location || "").slice(0, 120);
+  // Place search: a whole number of miles (0–100) around the town in `location`.
+  const miles = body.radius ?? null;
+  if (miles !== null && !(typeof miles === "number" && Number.isInteger(miles) && miles >= 0 && miles <= 100)) return json({ error: "invalid_radius" }, 400);
+  const place = miles !== null && location ? { radius: miles, long: String(body.locationLong || location).slice(0, 120) } : null;
   const names = ["Himalayas", "Jooble", "Google Jobs", "USAJOBS"];
-  const results = await Promise.allSettled([himalayas(), jooble(env, query, location), googleJobs(env, query, location), usajobs(env, query, location)]);
+  // Himalayas lists remote jobs only, which a place search leaves out.
+  const results = await Promise.allSettled([place ? null : himalayas(), jooble(env, query, location, place), googleJobs(env, query, location, place), usajobs(env, query, location, place)]);
   const jobs = [],
     counts = {},
     errors = {};

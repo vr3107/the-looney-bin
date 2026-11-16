@@ -159,6 +159,11 @@ const JC_ICONS = {
   heart: '<svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
   spark: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg>',
 };
+// "· 7 mi away" beside the location, for place searches (distance is between town centres).
+function distanceNote(x) {
+  if (typeof x.distance !== "number") return "";
+  return x.distance < 0.5 ? "" : x.distance < 1.5 ? " · about 1 mi away" : ` · ${Math.round(x.distance)} mi away`;
+}
 window.jobCardHtml = function (x) {
   let id = encodeURIComponent(x.id),
     m = Math.max(0, Math.min(100, Number(x.match) || 0)),
@@ -197,7 +202,7 @@ window.jobCardHtml = function (x) {
       </div>
     </div>
     <div class="jc-details">
-      ${detail("pin", x.location || "Location not listed")}
+      ${detail("pin", (x.location || "Location not listed") + distanceNote(x))}
       ${detail("home", wp)}
       ${detail("clock", type)}
       ${detail("bag", level)}

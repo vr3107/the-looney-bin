@@ -6,6 +6,15 @@ let feedStats = {},
   baseLiveListings = null,
   baseFeedStats = {};
 const LIVE_REFRESH_MS = 5 * 60 * 1000;
+let searchRun = 0; // counts searches, so an older one that finishes late can't replace newer results
+// Place search (js/place-search.js): the area being searched, or null. Read by the board links too.
+window.searchArea = null;
+window.searchPlaceError = "";
+window.searchPlaceErrorTitle = "";
+// The nearest distance a job board's own search offers, at least as wide as the app's.
+function boardRadius(miles, choices) {
+  return choices.find((c) => c >= miles) ?? choices[choices.length - 1];
+}
 function plainText(html) {
   let d = new DOMParser().parseFromString(String(html || ""), "text/html");
   return (d.body.textContent || "").replace(/\s+/g, " ").trim();
@@ -210,11 +219,15 @@ function score(job) {
   let hits = terms.filter((w) => text.includes(w)).length;
   return Math.round((100 * hits) / terms.length);
 }
-async function loadDiceJobs(query, location) {
+// area: the place search in force, if any; Dice is then asked for that town and distance.
+async function loadDiceJobs(query, location, area) {
   window.diceStatus = { ok: false, count: 0, query: query || "", location: location || "" };
   if (!query) return [];
   const postedHours = document.getElementById("recencyfilter")?.value || "all";
-  const cacheKey = `jobloom.dice.search.v1:${encodeURIComponent(query)}:${encodeURIComponent(location || "")}:${postedHours}`;
+  // Kept for five minutes under the search, the place and the distance asked for.
+  const keyStart = `jobloom.dice.search.v1:${encodeURIComponent(query)}:${encodeURIComponent(location || "")}:`,
+    keyEnd = `:${postedHours}`,
+    cacheKey = `${keyStart}${area ? area.queryRadius : "any"}${keyEnd}`;
   try {
     const cached = JSON.parse(sessionStorage.getItem(cacheKey) || "null");
     if (cached?.at && Date.now() - cached.at < LIVE_REFRESH_MS && Array.isArray(cached.jobs)) {
@@ -232,9 +245,32 @@ async function loadDiceJobs(query, location) {
         query,
         location,
         postedHours,
+        ...(area ? { radius: area.queryRadius } : {}),
       }),
     });
     const payload = await response.json().catch(() => ({}));
+    if (response.status === 429) {
+      // Too many searches in a minute. A wider search of the same place from the last few minutes
+      // holds these postings too (the results are narrowed to the distance afterwards).
+      if (area)
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i) || "";
+          if (!key.startsWith(keyStart) || !key.endsWith(keyEnd)) continue;
+          const wider = Number(key.slice(keyStart.length, key.length - keyEnd.length));
+          if (!(wider > area.queryRadius)) continue;
+          let kept = null;
+          try {
+            kept = JSON.parse(sessionStorage.getItem(key) || "null");
+          } catch {}
+          if (kept?.at && Date.now() - kept.at < LIVE_REFRESH_MS && Array.isArray(kept.jobs)) {
+            feedStats.Dice = kept.jobs.length;
+            Object.assign(window.diceStatus, { ok: true, count: kept.jobs.length });
+            return kept.jobs;
+          }
+        }
+      window.diceStatus.detail = "rate_limited";
+      throw new Error("Dice search is temporarily unavailable.");
+    }
     if (!response.ok) {
       window.diceStatus.detail = payload.detail || "";
       throw new Error("Dice search is temporarily unavailable.");
@@ -288,6 +324,8 @@ async function loadDiceJobs(query, location) {
 }
 // Direct Dice search URL for one role, carrying the app's location, workplace and posting-age filters.
 function diceSearchUrl(role, location) {
+  const area = window.searchArea;
+  if (area) location = area.query;
   const normalized = normalizeLocation(location);
   const isRemoteUS = /^(remote us|remote from usa|remote from united states|us remote|remote usa)$/.test(normalized);
   const isHybridUS = /^(hybrid us|hybrid in usa|hybrid in united states|us hybrid|hybrid usa)$/.test(normalized);
@@ -303,6 +341,7 @@ function diceSearchUrl(role, location) {
   if (hours > 0 && hours <= 24) url.searchParams.set("filters.postedDate", "ONE");
   else if (hours > 24 && hours <= 72) url.searchParams.set("filters.postedDate", "THREE");
   else if (hours > 72 && hours <= 168) url.searchParams.set("filters.postedDate", "SEVEN");
+  if (area) url.searchParams.set("radius", String(Math.max(area.queryRadius, 5)));
   url.searchParams.set("radiusUnit", "mi");
   return url.href;
 }
@@ -324,6 +363,12 @@ function boardSearchUrl(label, role, location) {
   if (label === "Dice") return diceSearchUrl(role, location);
   const board = EXTERNAL_BOARDS.find(([name]) => name === label);
   if (!board) return "";
+  // A place search sends the place and the board's closest distance setting. Indeed, ZipRecruiter and
+  // Google take a ZIP code as it is; the others are given the town.
+  const area = window.searchArea,
+    takesZip = /indeed|ziprecruiter|google/.test(board[1]);
+  if (area) location = takesZip ? area.query : area.town;
+  const areaRadius = area ? (takesZip ? area.queryRadius : area.townRadius) : 0;
   const normalizedLocation = normalizeLocation(location);
   const isRemoteUS = /^(remote us|remote from usa|remote from united states|us remote)$/.test(normalizedLocation);
   const isHybridUS = /^(hybrid us|hybrid in usa|hybrid in united states|us hybrid)$/.test(normalizedLocation);
@@ -338,6 +383,7 @@ function boardSearchUrl(label, role, location) {
   if (url.hostname.includes("linkedin.com")) {
     url.searchParams.set("keywords", role);
     if (externalLocation) url.searchParams.set("location", externalLocation);
+    if (area) url.searchParams.set("distance", String(boardRadius(areaRadius, [0, 5, 10, 25, 50, 100])));
     if (hours) url.searchParams.set("f_TPR", `r${hours * 3600}`);
     const wt = { Remote: "2", Hybrid: "3", "On-site": "1" }[workplace];
     if (wt) url.searchParams.set("f_WT", wt);
@@ -349,6 +395,7 @@ function boardSearchUrl(label, role, location) {
   } else if (url.hostname.includes("indeed.com")) {
     url.searchParams.set("q", workplace === "all" || workplace === "On-site" ? role : `${role} ${workplace.toLowerCase()}`);
     if (externalLocation) url.searchParams.set("l", externalLocation);
+    if (area) url.searchParams.set("radius", String(boardRadius(areaRadius, [0, 5, 10, 15, 25, 35, 50, 100])));
     if (hours) url.searchParams.set("fromage", String([1, 3, 7, 14].find((d) => d * 24 >= hours) || 14));
     const jt = { "Full-time": "fulltime", Contract: "contract", "Part-time": "parttime", Internship: "internship" }[jobType];
     if (jt) url.searchParams.set("jt", jt);
@@ -362,10 +409,11 @@ function boardSearchUrl(label, role, location) {
   } else if (url.hostname.includes("ziprecruiter.com")) {
     url.searchParams.set("search", q);
     if (externalLocation) url.searchParams.set("location", externalLocation);
+    if (area) url.searchParams.set("radius", String(boardRadius(areaRadius, [5, 10, 25, 50, 100])));
     if (hours) url.searchParams.set("days", String([1, 5, 10, 30].find((d) => d * 24 >= hours) || 30));
   } else {
     url.searchParams.set("ibp", "htl;jobs");
-    url.searchParams.set("q", `${q} jobs ${externalLocation || ""}`.trim());
+    url.searchParams.set("q", area ? `${q} jobs near ${externalLocation}` : `${q} jobs ${externalLocation || ""}`.trim());
   }
   return url.href;
 }
@@ -396,15 +444,31 @@ async function searchBoards() {
     navigate("profile");
     return;
   }
+  const run = ++searchRun;
   liveMode = true;
   liveShown = 60;
   feedStats = { ...baseFeedStats };
   feedErrors = [];
   let box = document.getElementById("jobs"),
     progress = (s) => {
+      if (run !== searchRun) return;
       box.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="bigico">⌕</div><strong>Building your job results…</strong><p>${esc(s)}<br>Fetching multiple pages, then ranking listings against your resume.</p></div>`;
     };
   progress("Connecting to public job feeds…");
+  // A city, town, ZIP code or "near me" with a distance, if one is set.
+  window.searchPlaceError = "";
+  const where = window.geoSearch ? await window.geoSearch.prepare().catch(() => ({ error: "The place couldn’t be worked out. Check the city, town or ZIP code and search again." })) : {};
+  if (run !== searchRun) return false;
+  if (where.error) {
+    window.searchArea = null;
+    window.searchPlaceError = where.error;
+    window.searchPlaceErrorTitle = where.title || "That place wasn’t found.";
+    window.liveResults = [];
+    renderJobs();
+    return;
+  }
+  const area = where.area || null;
+  window.searchArea = area;
   try {
     let baseJobs = Array.isArray(baseLiveListings) &&
       Date.now() - baseListingsFetchedAt < LIVE_REFRESH_MS
@@ -450,13 +514,16 @@ async function searchBoards() {
     }
     baseLiveListings = baseJobs;
     let q = (document.getElementById("query").value || "").trim().toLowerCase(),
-      loc = (
-        document.getElementById("location").value ||
-        data.profile.location ||
-        ""
-      )
-        .trim()
-        .toLowerCase(),
+      // With a place search the town decides where; otherwise the state box (or the profile's location).
+      loc = area
+        ? area.query
+        : (
+            document.getElementById("location").value ||
+            data.profile.location ||
+            ""
+          )
+            .trim()
+            .toLowerCase(),
       searchQuery = q ||
         (window.activeResume && window.activeResume()?.targetRoles) ||
         data.profile.role ||
@@ -468,9 +535,10 @@ async function searchBoards() {
     window.lastParsedSearch = parsedSearch;
     // Dice, company career sites, and the other boards load together.
     const [diceJobs, extraJobs] = await Promise.all([
-      loadDiceJobs(plainQuery, loc),
-      typeof window.loadExtraJobSources === "function" ? window.loadExtraJobSources(roleQueries, plainQuery, loc, progress) : [],
+      loadDiceJobs(plainQuery, loc, area),
+      typeof window.loadExtraJobSources === "function" ? window.loadExtraJobSources(roleQueries, plainQuery, loc, progress, area) : [],
     ]);
+    if (run !== searchRun) return false;
     let all = uniqueJobs([...baseJobs, ...diceJobs, ...extraJobs]);
     liveListings = all;
     liveListingsCheckedAt = Date.now();
@@ -480,7 +548,8 @@ async function searchBoards() {
         (j) =>
           !saved.has(j.url) &&
           !jobExcluded(j, parsedSearch.exclude) &&
-          jobMatchesLocation(loc, j.location, j.tags, j.source) &&
+          // A place search keeps only postings that name a town inside the distance.
+          (area ? area.within(j) : jobMatchesLocation(loc, j.location, j.tags, j.source)) &&
           (!roleQueries.length ||
             roleQueries.some((role) => roleRelevance(j, role) > 0)),
       )
@@ -500,6 +569,8 @@ async function searchBoards() {
         ).toLowerCase();
         return {
           ...j,
+          // Miles from the centre of the search to the posting's town (place searches only).
+          distance: area ? area.distance(j) : null,
           roleScore,
           roleLabel:
             roleQueries.some((role) => companyRelevance(j, role))
@@ -526,6 +597,7 @@ async function searchBoards() {
     window.liveResults = results;
     renderJobs();
   } catch (e) {
+    if (run !== searchRun) return false;
     window.liveResults = [];
     box.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="bigico">↯</div><strong>Couldn’t load job listings.</strong><p>${esc(e.message || "Check your internet connection and try again.")}</p><button class="btn btn-sm" style="margin-top:13px" onclick="searchBoards()">Try again</button></div>`;
   }
@@ -535,9 +607,25 @@ function renderJobs() {
   if (!box) return;
   let f = document.getElementById("matchfilter")?.value || "all";
   if (liveMode) {
+    if (window.searchPlaceError) {
+      document.getElementById("jobcount").textContent = "";
+      box.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="bigico">⌕</div><strong>${esc(window.searchPlaceErrorTitle || "That place wasn’t found.")}</strong><p>${esc(window.searchPlaceError)}</p></div>`;
+      return;
+    }
+    const area = window.searchArea,
+      sort = document.getElementById("sortfilter")?.value;
     let all = window.liveResults || [],
       arr = f === "all" ? all : all.filter((x) => x.match >= Number(f));
-    if (document.getElementById("sortfilter")?.value === "recent")
+    if (sort === "nearest" && area)
+      // Whole miles, so postings in the same town stay ranked by fit.
+      arr = [...arr].sort(
+        (a, b) =>
+          Math.round(a.distance ?? 1e6) - Math.round(b.distance ?? 1e6) ||
+          (b.roleScore || 0) - (a.roleScore || 0) ||
+          b.match - a.match ||
+          new Date(b.published) - new Date(a.published),
+      );
+    else if (sort === "recent")
       arr = [...arr].sort(
         (a, b) =>
           (b.roleScore || 0) - (a.roleScore || 0) ||
@@ -566,7 +654,7 @@ function renderJobs() {
     const checked = liveListingsCheckedAt
       ? ` · checked ${new Date(liveListingsCheckedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
       : "";
-    count.textContent = `${(window.activeResume && window.activeResume()?.name) || "Resume"} · ${arr.length.toLocaleString()} results from ${pool.toLocaleString()} listings${stats ? " · " + stats : ""}${checked}`;
+    count.textContent = `${(window.activeResume && window.activeResume()?.name) || "Resume"} · ${arr.length.toLocaleString()} result${arr.length === 1 ? "" : "s"}${area ? " " + area.describe() : ""} from ${pool.toLocaleString()} listings${stats ? " · " + stats : ""}${checked}`;
     let summary = feedErrors.length
       ? `<div class="analysis-note" style="grid-column:1/-1">Some feeds were unavailable: ${esc(feedErrors.join(" "))}</div>`
       : "";
@@ -579,12 +667,20 @@ function renderJobs() {
     if (dice && (board === "all" || board === "Dice") && (!dice.ok || !dice.count)) {
       const diceRoles = String(dice.query || "").split(",").map((r) => r.trim()).filter(Boolean).slice(0, 5);
       if (diceRoles.length)
-        summary += `<div class="analysis-note dice-note" style="grid-column:1/-1"><strong>Dice:</strong> ${dice.ok ? "Dice returned no postings for this search." : (/login|access token|password/i.test(dice.detail || "") ? "Dice’s job search service is down on Dice’s side right now (its sign-in to Dice’s own systems is failing), so its postings can’t be listed here until Dice fixes it." : "Dice’s job search service isn’t responding right now, so its postings can’t be listed here.")}${arr.some((x) => x.source !== "Dice" && (x.sources || []).some((src) => src.name === "Dice")) ? " Dice postings found through Google Jobs are shown below." : ""} Open the same search on Dice:<span class="dice-links">${diceRoles.map((r) => `<a class="btn btn-sm" style="text-decoration:none" href="${esc(diceSearchUrl(r, dice.location))}" target="_blank" rel="noopener">${esc(r)} on Dice ↗</a>`).join("")}</span></div>`;
+        summary += `<div class="analysis-note dice-note" style="grid-column:1/-1"><strong>Dice:</strong> ${dice.ok ? "Dice returned no postings for this search." : dice.detail === "rate_limited" ? "Dice can be searched a few times a minute through this app, and that limit was just reached. Search again in a minute to list its postings." : (/login|access token|password/i.test(dice.detail || "") ? "Dice’s job search service is down on Dice’s side right now (its sign-in to Dice’s own systems is failing), so its postings can’t be listed here until Dice fixes it." : "Dice’s job search service isn’t responding right now, so its postings can’t be listed here.")}${arr.some((x) => x.source !== "Dice" && (x.sources || []).some((src) => src.name === "Dice")) ? " Dice postings found through Google Jobs are shown below." : ""} Open the same search on Dice:<span class="dice-links">${diceRoles.map((r) => `<a class="btn btn-sm" style="text-decoration:none" href="${esc(diceSearchUrl(r, dice.location))}" target="_blank" rel="noopener">${esc(r)} on Dice ↗</a>`).join("")}</span></div>`;
+    }
+    // A place search with only a handful of results: offer wider distances and the big boards' own searches.
+    if (area && arr.length && arr.length < 8 && board === "all" && !window.showHiddenJobs) {
+      const role = searchRoles((window.lastBoardSearch || {}).query)[0],
+        widerSteps = [25, 50, 100].filter((miles) => miles > area.radius).slice(0, 2);
+      summary += `<div class="analysis-note dice-note" style="grid-column:1/-1"><strong>${arr.length} posting${arr.length === 1 ? " names" : "s name"} a town ${esc(area.describe())}.</strong> Company career sites and job feeds list fewer openings outside the largest cities.${widerSteps.length ? " Try a wider distance, or" : " You can also"} run the same search on the big job boards, which carry the place and distance:<span class="dice-links">${widerSteps.map((miles) => `<button class="btn btn-sm" onclick="geoSearch.widen(${miles})">Within ${miles} miles</button>`).join("")}${["LinkedIn", "Indeed", "ZipRecruiter", "Dice", "Google Jobs"].map((name) => `<a class="btn btn-sm" style="text-decoration:none" href="${esc(boardSearchUrl(name, role, area.query))}" target="_blank" rel="noopener">${esc(name)} ↗</a>`).join("")}</span></div>`;
     }
     if (!arr.length) {
+      // With a place search, offer the next distances up.
+      const wider = area && !window.showHiddenJobs ? [25, 50, 100].filter((miles) => miles > area.radius).slice(0, 2) : [];
       box.innerHTML =
         summary +
-        '<div class="empty" style="grid-column:1/-1"><div class="bigico">⌕</div><strong>No postings matched this filter.</strong><p>${window.showHiddenJobs ? "You haven’t hidden any jobs that match these filters." : "Try widening the filters above, or choose “All job boards” and “All match scores”."}</p></div>';
+        `<div class="empty" style="grid-column:1/-1"><div class="bigico">⌕</div><strong>${area && !window.showHiddenJobs ? `No postings found ${esc(area.describe())}.` : "No postings matched this filter."}</strong><p>${window.showHiddenJobs ? "You haven’t hidden any jobs that match these filters." : area ? "Only postings that name a town inside this distance are shown. Try a wider distance, a nearby city, or fewer filters." : "Try widening the filters above, or choose “All job boards” and “All match scores”."}</p>${wider.length ? `<div class="empty-actions">${wider.map((miles) => `<button class="btn" onclick="geoSearch.widen(${miles})">Search within ${miles} miles</button>`).join("")}<button class="btn" onclick="geoSearch.clear()">Search without a place</button></div>` : ""}</div>`;
       return;
     }
     box.innerHTML =
@@ -662,7 +758,7 @@ function plainText(html) {
     });
   }
   window.searchBoards = async () => {
-    await oldSearch();
+    if ((await oldSearch()) === false) return; // overtaken by a newer search
     window.allLiveResults = window.liveResults || [];
     setAgeFilter();
     renderJobs();
@@ -681,6 +777,8 @@ setInterval(() => {
     document.visibilityState !== "hidden" &&
     discover &&
     !discover.classList.contains("hidden") &&
+    // not while a place is being typed: the refresh would read the half-typed name
+    document.activeElement?.id !== "place" &&
     Date.now() - liveListingsCheckedAt >= LIVE_REFRESH_MS
   ) {
     window.searchBoards();
@@ -846,6 +944,8 @@ window.saveLive = function (id) {
   delete copy.matchTerms;
   delete copy.roleScore;
   delete copy.roleLabel;
+  // Miles from a search centre (possibly "near me") belong to that search, not to the saved job.
+  delete copy.distance;
   data.jobs.push(copy);
   persist();
   toast("Role saved to your application tracker.");

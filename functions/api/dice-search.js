@@ -23,7 +23,7 @@ function withinRateLimit(ip) {
   const now = Date.now();
   const current = requestsByIp.get(ip);
   if (current && now - current.startedAt < 60_000) {
-    if (current.count >= 4) return false;
+    if (current.count >= 6) return false;
     current.count += 1;
   } else {
     requestsByIp.set(ip, { startedAt: now, count: 1 });
@@ -114,7 +114,8 @@ async function searchDice(args, connection, id) {
   return result;
 }
 
-function diceFilters(location, postedHours) {
+// radius: miles around the location (place searches in the app); null when no distance was asked for.
+function diceFilters(location, postedHours, radius = null) {
   const normalized = String(location || "").toLowerCase().replace(/[()]/g, "");
   const args = {};
   if (/^(remote us|remote from usa|remote from united states|us remote|remote usa)$/.test(normalized)) {
@@ -128,6 +129,14 @@ function diceFilters(location, postedHours) {
     args.workplace_types = ["Remote"];
   } else if (location) {
     args.location = location;
+    if (radius !== null) {
+      // "Only this place" is 0 in the app; Dice needs at least 1, and a few miles covers the whole town.
+      args.radius = Math.max(radius, 5);
+      args.radius_unit = "mi";
+      // Dice measures the distance for on-site and hybrid jobs only: left unset, it adds every remote
+      // job in the country to the results, wherever the employer is.
+      args.workplace_types = ["On-Site", "Hybrid"];
+    }
   }
 
   const hours = Number(postedHours);
@@ -159,31 +168,47 @@ export async function onRequestPost({ request }) {
   if (query.length > 500 || location.length > 120) {
     return json({ error: "input_too_long" }, 413);
   }
+  // Optional distance in whole miles (0–100), sent by the app's place search.
+  const miles = body?.radius ?? null;
+  if (miles !== null && !(typeof miles === "number" && Number.isInteger(miles) && miles >= 0 && miles <= 100)) {
+    return json({ error: "invalid_radius" }, 400);
+  }
 
   try {
-    const filters = diceFilters(location, body?.postedHours);
+    const filters = diceFilters(location, body?.postedHours, miles);
     const connection = await initializeDice();
     let requestId = 2;
     const results = await Promise.allSettled(roleQueries.map(async (keyword) => {
       const pages = [];
       let pageCount = 1;
       for (let page = 1; page <= Math.min(pageCount, 3); page++) {
-        const result = await searchDice({
-          keyword,
-          ...filters,
-          jobs_per_page: 50,
-          page_number: page,
-          sort: "datePosted",
-        }, connection, requestId++);
+        let result;
+        try {
+          result = await searchDice({
+            keyword,
+            ...filters,
+            jobs_per_page: 50,
+            page_number: page,
+            sort: "datePosted",
+          }, connection, requestId++);
+        } catch (error) {
+          // The first page failing means the search failed; a later page failing keeps what arrived.
+          if (!pages.length) throw error;
+          break;
+        }
         pages.push(result);
-        pageCount = Number(result.meta?.pageCount || result.metadata?.pageCount || pageCount);
+        // Dice reports the number of pages as metadata.totalPages (older responses: pageCount).
+        pageCount = Number(result.metadata?.totalPages || result.meta?.pageCount || result.metadata?.pageCount || pageCount) || 1;
       }
       return pages;
     }));
-    const successful = results.filter((result) => result.status === "fulfilled").flatMap((result) => result.value);
+    const fulfilled = results.filter((result) => result.status === "fulfilled").map((result) => result.value);
+    const successful = fulfilled.flat();
     if (!successful.length) throw new Error(results.find((r) => r.status === "rejected")?.reason?.message || "Dice search unavailable");
     const jobs = successful.flatMap((result) => result.data || []);
-    return json({ jobs, resultCount: successful.reduce((total, result) => total + (result.meta?.totalResults || result.metadata?.totalResults || result.data.length), 0) });
+    // How many postings Dice has for the search in all (the first page of each role carries the total).
+    const resultCount = fulfilled.reduce((total, pages) => total + Number(pages[0]?.metadata?.total ?? pages[0]?.meta?.totalResults ?? pages[0]?.metadata?.totalResults ?? pages.reduce((n, page) => n + page.data.length, 0)), 0);
+    return json({ jobs, resultCount });
   } catch (error) {
     // e.g. "Job search failed: DSP login did not return an access token" — a problem on Dice's side.
     return json({ error: "dice_temporarily_unavailable", detail: String(error?.message || "").slice(0, 200) }, 502);

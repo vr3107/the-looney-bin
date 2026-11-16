@@ -53,8 +53,9 @@ function indexJob(row) {
   if (gh) Object.assign(job, { ats: "greenhouse", atsSlug: gh[1], atsJobId: gh[2], needsDetails: true });
   return job;
 }
-// roles: [{ raw, ... }] from parseJobSearch.
-async function loadJobIndex(roles, progress = () => {}) {
+// roles: [{ raw, ... }] from parseJobSearch. area: the place search in force, if any
+// (js/geo-search.js); its test runs before the per-role limit, so nearby jobs aren't crowded out.
+async function loadJobIndex(roles, progress = () => {}, area = null) {
   let out = [];
   try {
     progress("Loading the daily job index…");
@@ -69,7 +70,7 @@ async function loadJobIndex(roles, progress = () => {}) {
         rows = await jobIndexGet(words[rarest] ? `w/${rarest}.json.gz` : `b/${indexBucketOf(rarest, buckets)}.json.gz`);
       let hits = rows.filter((row) => {
         let have = indexTitleWords(row[0]);
-        return want.every((w) => have.includes(w));
+        return want.every((w) => have.includes(w)) && (!area || area.keepLocation(row[2]));
       });
       hits.sort((a, b) => (b[7] || 0) - (a[7] || 0));
       out.push(...hits.slice(0, JOB_INDEX_MAX_PER_ROLE).map(indexJob));
