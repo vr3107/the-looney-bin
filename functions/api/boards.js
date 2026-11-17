@@ -91,7 +91,7 @@ async function usajobs(env, query, location, place) {
     };
   });
 }
-// Google Jobs through SerpApi. One search per request (free plan: 250 a month), cached for 6 hours.
+// Google Jobs through SerpApi: two pages per search (free plan: 250 searches a month), cached for 6 hours.
 async function googleJobs(env, query, location, place) {
   if (!env.SERPAPI_API_KEY || !query) return null;
   const remote = !place && /^remote/i.test(location || "");
@@ -101,16 +101,26 @@ async function googleJobs(env, query, location, place) {
   // Distance in kilometres, in three steps (15, 35 and 100 miles) so nearby choices in the app share
   // one cached search instead of each using up a search from the monthly allowance.
   if (place) params.set("lrad", String(place.radius <= 15 ? 24 : place.radius <= 35 ? 56 : 161));
-  const cacheKey = new Request(`https://cache.the-looney-bin.local/google-jobs?${params}`);
   const cache = globalThis.caches?.default;
-  let d = cache ? await cache.match(cacheKey).then((r) => r?.json()).catch(() => null) : null;
-  if (!d) {
-    params.set("api_key", env.SERPAPI_API_KEY);
-    // A new Google search through SerpApi can take 15–20 seconds.
-    d = await getJson(`https://serpapi.com/search.json?${params}`, {}, 28_000);
-    if (d.error && !/hasn.t returned any results/i.test(d.error)) throw new Error(d.error);
-    if (cache) await cache.put(cacheKey, new Response(JSON.stringify(d), { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=21600" } })).catch(() => {});
+  // Two pages (20 postings; each page is one search from the SerpApi allowance), cached 6 hours.
+  async function page(token) {
+    const p = new URLSearchParams(params);
+    if (token) p.set("next_page_token", token);
+    const cacheKey = new Request(`https://cache.the-looney-bin.local/google-jobs?${p}`);
+    let d = cache ? await cache.match(cacheKey).then((r) => r?.json()).catch(() => null) : null;
+    if (!d) {
+      p.set("api_key", env.SERPAPI_API_KEY);
+      // A new Google search through SerpApi can take 15–20 seconds.
+      d = await getJson(`https://serpapi.com/search.json?${p}`, {}, 28_000);
+      if (d.error && !/hasn.t returned any results/i.test(d.error)) throw new Error(d.error);
+      if (cache) await cache.put(cacheKey, new Response(JSON.stringify(d), { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=21600" } })).catch(() => {});
+    }
+    return d;
   }
+  const first = await page(""),
+    token = first.serpapi_pagination?.next_page_token,
+    second = token ? await page(token).catch(() => ({})) : {};
+  const d = { jobs_results: [...(first.jobs_results || []), ...(second.jobs_results || [])] };
   return (d.jobs_results || []).map((j) => {
     const via = String(j.via || "").replace(/^via\s+/i, "").trim(),
       apply = j.apply_options || [],
