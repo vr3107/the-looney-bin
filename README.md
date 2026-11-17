@@ -63,7 +63,7 @@ Add keys as **Secret** (encrypted) for both Production and Preview. Secrets only
 | **Job index** (about 1.2 million US jobs from company career sites on Greenhouse, Lever, Ashby, Workday, iCIMS, BambooHR and Paylocity) | A daily index built by `.github/workflows/jobs-index.yml` from the public dataset of [Riley-Dorrington/job-board-aggregator](https://github.com/Riley-Dorrington/job-board-aggregator) (MIT licensed) and published to the Cloudflare Pages project `looney-bin-jobs`. A search downloads only the file for the least common word in each role (usually under 1 MB). Each job links to its official posting. | GitHub repository secrets `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and `CLOUDFLARE_ACCOUNT_ID` for the daily workflow |
 | **Workday career sites** | Live keyword search of employers' Workday sites through `/api/workday` (signed-in only; contacts only `*.myworkdayjobs.com`). 40 large employers every search (Capital One, Cisco, NVIDIA, Salesforce, Cleveland Clinic, KeyBank, …) plus up to 40 more that the job index shows hiring for the searched roles; 20 newest matches per employer, cached 1 hour. Listed under Company sites. | None |
 | Dice | Dice's job search service (`/api/dice-search`) | None |
-| The Muse | Public API, read by the browser | None |
+| The Muse | Public API, through `/api/muse` (it no longer answers browsers directly) | None |
 | Jobicy, Arbeitnow, Remote OK, Remotive | Public remote-job feeds, read by the browser | None |
 | Himalayas | Public remote-job API, through `/api/boards` | None |
 | Working Nomads | Public remote-job feed, through `/api/boards` (left out of place searches) | None |

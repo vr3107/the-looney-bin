@@ -303,7 +303,7 @@ window.openDetails = function (id) {
 window.loadCompanyJobs = loadCompanyJobs;
 
 // ---------- extra job boards ----------
-// The Muse: browser request; no keyword search, so pick categories from the query.
+// The Muse: through /api/muse; no keyword search, so pick categories from the query.
 const MUSE_CATEGORIES = [
   [/data (engineer|scien|analy)|analytics|machine learning|\bml\b|\bai\b|bi developer/, ["Data and Analytics", "Data Science"]],
   [/software|developer|engineer|devops|sre|backend|frontend|full ?stack|cloud|platform/, ["Software Engineering", "IT"]],
@@ -325,7 +325,8 @@ async function loadMuse(roles, progress, area = null) {
       cats.forEach((c) => params.append("category", c));
       // A place search asks for the main towns in the area ("Cleveland, OH"), The Muse's own format.
       if (area) area.towns(6).forEach((town) => params.append("location", town));
-      let d = await getJson(`https://www.themuse.com/api/public/jobs?${params}`);
+      // Through our server: The Muse no longer answers browsers directly.
+      let d = await getJson(`/api/muse?${params}`);
       out.push(
         ...(d.results || []).map((j) =>
           baseJob("The Muse", j.id, j.name, j.company?.name, (j.locations || []).map((l) => l.name).join(" / "), j.refs?.landing_page, j.contents, [...(j.levels || []).map((l) => l.name), ...(j.categories || []).map((c) => c.name)], j.publication_date),
