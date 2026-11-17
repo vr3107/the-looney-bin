@@ -875,11 +875,9 @@ window.tailorResume = function (id) {
           ? "Download tailored .pdf keeps your original PDF pages: unchanged lines are untouched, and each edited line is redrawn in the same position and size with the closest standard font. Added lines can’t fit a fixed PDF layout, so use DOCX or TXT if you add lines."
           : "This saved resume is used as the source text; exports are provided as DOCX and TXT files.") +
       '</div><div class="resume-actions" style="margin-top:11px">' +
-      (isPdf
-        ? '<button class="btn btn-sm" onclick="downloadTailoredPdf(decodeURIComponent(\'' +
-          encodeURIComponent(sourceId || "") +
-          "'))\">Download tailored .pdf</button>"
-        : "") +
+      '<button class="btn btn-sm" onclick="downloadTailoredPdf(decodeURIComponent(\'' +
+      encodeURIComponent(sourceId || "") +
+      "'))\">Download tailored .pdf</button>" +
       '<button class="btn btn-sm" onclick="downloadTailoredDocx(decodeURIComponent(\'' +
       encodeURIComponent(sourceId || "") +
       "'))\">Download tailored .docx</button>" +
