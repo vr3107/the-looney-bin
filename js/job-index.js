@@ -51,6 +51,11 @@ function indexJob(row) {
   // Greenhouse postings can load their full description when opened.
   let gh = String(url).match(/greenhouse\.io\/(?:embed\/job_app\?for=)?([A-Za-z0-9_-]+)\/jobs\/(\d+)/);
   if (gh) Object.assign(job, { ats: "greenhouse", atsSlug: gh[1], atsJobId: gh[2], needsDetails: true });
+  // Lever and Ashby: the same posting checked live on the company's board merges with this one.
+  let lv = !gh && String(url).match(/jobs\.lever\.co\/([A-Za-z0-9_.-]+)\/([0-9a-f-]{36})/i),
+    ab = !gh && !lv && String(url).match(/jobs\.ashbyhq\.com\/([A-Za-z0-9_.%-]+)\/([0-9a-f-]{36})/i);
+  if (lv) Object.assign(job, { atsKey: `lever:${lv[1].toLowerCase()}:${lv[2].toLowerCase()}` });
+  if (ab) Object.assign(job, { atsKey: `ashby:${decodeURIComponent(ab[1]).toLowerCase()}:${ab[2].toLowerCase()}` });
   return job;
 }
 // roles: [{ raw, ... }] from parseJobSearch. area: the place search in force, if any

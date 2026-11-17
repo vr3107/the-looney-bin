@@ -186,23 +186,49 @@ async function loadRemotive(progress) {
     return [];
   }
 }
+// The same posting found on several boards: one card, with a link to each board.
+// Matched by the hiring system's posting id, the link, or the title + company + town.
+const COMPANY_SUFFIX = /\b(inc|llc|ltd|corp|corporation|co|company|the|group|holdings|usa|us)\b/g;
+function jobKeys(j) {
+  let keys = [];
+  if (j.atsKey) keys.push(j.atsKey);
+  else if (j.ats && j.atsSlug && j.atsJobId) keys.push(`${j.ats}:${String(j.atsSlug).toLowerCase()}:${String(j.atsJobId).toLowerCase()}`);
+  if (j.url) keys.push(String(j.url).replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase());
+  let title = String(j.title || "").toLowerCase().replace(/\(.*?\)|[^a-z0-9]+/g, " ").trim(),
+    company = String(j.company || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(COMPANY_SUFFIX, "").replace(/\s+/g, ""),
+    town = "";
+  try {
+    let p = window.geoCore?.placesIn?.(j.location || "")[0];
+    town = p ? `${p.key}.${p.st}` : "";
+  } catch {}
+  if (!town) town = String(j.location || "").toLowerCase().split(/[,/(]/)[0].replace(/[^a-z]+/g, "");
+  if (title && company.length > 1) keys.push(`t:${title}|${company}|${town}`);
+  return keys;
+}
 function uniqueJobs(jobs) {
-  let map = new Map();
+  let map = new Map(),
+    out = [];
   for (let j of jobs) {
-    let key = j.url || `${j.title.toLowerCase()}|${j.company.toLowerCase()}`;
-    if (!map.has(key)) {
+    let keys = jobKeys(j),
+      found = keys.map((k) => map.get(k)).find(Boolean);
+    if (found) keys.forEach((k) => map.has(k) || map.set(k, found));
+    else keys.forEach((k) => map.set(k, j));
+    if (!found) {
+      out.push(j);
       // extraSources: other boards carrying the same posting (e.g. Google Jobs' LinkedIn / Indeed links).
       j.sources = [{ name: j.source, url: j.url || j.sourceHome }, ...(j.extraSources || []).filter((s) => s.name !== j.source)];
-      map.set(key, j);
     } else {
-      let found = map.get(key);
       if (!found.sources.some((s) => s.name === j.source))
         found.sources.push({ name: j.source, url: j.url || j.sourceHome });
-      if ((j.description || "").length > (found.description || "").length)
+      if ((j.description || "").length > (found.description || "").length) {
         found.description = j.description;
+        found.needsDetails = false;
+      }
+      if (!found.salary && j.salary) found.salary = j.salary;
+      if (!found.published || (j.published && new Date(j.published) > new Date(found.published))) found.published = j.published || found.published;
     }
   }
-  return [...map.values()];
+  return out;
 }
 function score(job) {
   let terms = resumeTerms();
