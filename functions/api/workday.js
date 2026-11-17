@@ -19,7 +19,7 @@ function withinRateLimit(ip) {
   const now = Date.now(),
     cur = requestsByIp.get(ip);
   if (cur && now - cur.startedAt < 60_000) {
-    if (cur.count >= 12) return false;
+    if (cur.count >= 30) return false;
     cur.count += 1;
   } else requestsByIp.set(ip, { startedAt: now, count: 1 });
   if (requestsByIp.size > 5000) for (const [k, v] of requestsByIp) if (now - v.startedAt >= 60_000) requestsByIp.delete(k);
