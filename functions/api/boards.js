@@ -1,10 +1,10 @@
-// Job boards that can't be read from the browser: Himalayas (no browser access), and
-// Jooble, Google Jobs and USAJOBS (need API keys). POST /api/boards { query, location }
+// Job boards that can't be read from the browser: Himalayas and Working Nomads (no browser
+// access), and Jooble, Google Jobs, USAJOBS and Adzuna (need API keys). POST /api/boards { query, location }
 // A place search in the app adds { locationLong: "Cleveland, Ohio", radius: miles }, and each
 // board is then asked for that town and the closest distance it supports.
 // Optional Cloudflare Pages secrets: JOOBLE_API_KEY (jooble.org/api/about), SERPAPI_API_KEY (serpapi.com: Google Jobs, which
 // gathers postings from LinkedIn, Indeed, Dice, ZipRecruiter, Glassdoor and company sites).
-// A board without its key is skipped.
+// ADZUNA_APP_ID + ADZUNA_APP_KEY (developer.adzuna.com, free). A board without its key is skipped.
 const requestsByIp = new Map();
 function json(body, status = 200) {
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -137,6 +137,45 @@ function postedAgo(s) {
   const ms = { minute: 6e4, hour: 36e5, day: 864e5, week: 6048e5, month: 2592e6 }[m[2].toLowerCase()];
   return new Date(Date.now() - Number(m[1]) * ms).toISOString();
 }
+// Working Nomads: remote jobs (public feed, no key). Remote only, so a place search skips it.
+async function workingNomads() {
+  const d = await getJson("https://www.workingnomads.com/api/exposed_jobs/");
+  return (Array.isArray(d) ? d : []).slice(0, 300).map((j) => ({
+    source: "Working Nomads",
+    id: j.url || `${j.company_name}-${j.title}`,
+    title: text(j.title, 200),
+    company: j.company_name,
+    location: [j.location, "Remote"].filter(Boolean).join(" / "),
+    url: j.url,
+    description: text(j.description),
+    tags: [j.category_name, ...String(j.tags || "").split(",").map((t) => t.trim())].filter(Boolean).slice(0, 8),
+    published: j.pub_date,
+    salary: "",
+  }));
+}
+// Adzuna (US): a large aggregator with a free developer key. Distance is in kilometres.
+async function adzuna(env, query, location, place) {
+  if (!env.ADZUNA_APP_ID || !env.ADZUNA_APP_KEY || !query) return null;
+  const remote = !place && /^remote/i.test(location || "");
+  const params = new URLSearchParams({ app_id: env.ADZUNA_APP_ID, app_key: env.ADZUNA_APP_KEY, what: remote ? `${query} remote` : query, results_per_page: "50", sort_by: "date", "content-type": "application/json" });
+  if (place) {
+    params.set("where", place.long);
+    params.set("distance", String(Math.max(Math.ceil(place.radius * 1.609), 5)));
+  } else if (location && !remote && !/^(united states|usa|us|hybrid.*)$/i.test(location)) params.set("where", location);
+  const d = await getJson(`https://api.adzuna.com/v1/api/jobs/us/search/1?${params}`);
+  return (d.results || []).map((j) => ({
+    source: "Adzuna",
+    id: String(j.id || j.redirect_url),
+    title: text(j.title, 200),
+    company: j.company?.display_name || "",
+    location: j.location?.display_name || "",
+    url: j.redirect_url,
+    description: text(j.description),
+    tags: [j.contract_time, j.contract_type, j.category?.label].filter(Boolean),
+    published: j.created,
+    salary: j.salary_min ? `$${Math.round(j.salary_min)}${j.salary_max && j.salary_max !== j.salary_min ? `–$${Math.round(j.salary_max)}` : ""}${j.salary_is_predicted === "1" ? " (estimate)" : ""}` : "",
+  }));
+}
 // Jooble takes a distance only as one of these values in kilometres; each stands for a round number of miles.
 const JOOBLE_RADIUS = [[0, "0"], [2.5, "4"], [5, "8"], [10, "16"], [16, "26"], [25, "40"], [50, "80"]];
 async function jooble(env, query, location, place) {
@@ -172,9 +211,9 @@ export async function onRequestPost({ request, env }) {
   const miles = body.radius ?? null;
   if (miles !== null && !(typeof miles === "number" && Number.isInteger(miles) && miles >= 0 && miles <= 100)) return json({ error: "invalid_radius" }, 400);
   const place = miles !== null && location ? { radius: miles, long: String(body.locationLong || location).slice(0, 120) } : null;
-  const names = ["Himalayas", "Jooble", "Google Jobs", "USAJOBS"];
-  // Himalayas lists remote jobs only, which a place search leaves out.
-  const results = await Promise.allSettled([place ? null : himalayas(), jooble(env, query, location, place), googleJobs(env, query, location, place), usajobs(env, query, location, place)]);
+  const names = ["Himalayas", "Working Nomads", "Jooble", "Google Jobs", "USAJOBS", "Adzuna"];
+  // Himalayas and Working Nomads list remote jobs only, which a place search leaves out.
+  const results = await Promise.allSettled([place ? null : himalayas(), place ? null : workingNomads(), jooble(env, query, location, place), googleJobs(env, query, location, place), usajobs(env, query, location, place), adzuna(env, query, location, place)]);
   const jobs = [],
     counts = {},
     errors = {};
@@ -184,5 +223,5 @@ export async function onRequestPost({ request, env }) {
       counts[names[i]] = r.value.length;
     } else if (r.status === "rejected") errors[names[i]] = String(r.reason?.message || r.reason).slice(0, 120);
   });
-  return json({ jobs, counts, errors, configured: { Jooble: !!env.JOOBLE_API_KEY, "Google Jobs": !!env.SERPAPI_API_KEY, USAJOBS: !!(env.USAJOBS_API_KEY && env.USAJOBS_EMAIL) } });
+  return json({ jobs, counts, errors, configured: { Jooble: !!env.JOOBLE_API_KEY, "Google Jobs": !!env.SERPAPI_API_KEY, USAJOBS: !!(env.USAJOBS_API_KEY && env.USAJOBS_EMAIL), Adzuna: !!(env.ADZUNA_APP_ID && env.ADZUNA_APP_KEY) } });
 }

@@ -4,8 +4,12 @@
 // Plus extra job boards: The Muse and Hacker News (browser) and Himalayas / Jooble / Google Jobs /
 // USAJOBS (/api/boards).
 
-// Starter list: company boards checked to return jobs (Nov 2026). Users can add more.
+// Starter list: company boards checked to return U.S. jobs (Nov 2026). Users can add more, and each
+// search also checks the companies the job index shows hiring for the searched roles.
 const STARTER_COMPANIES = [
+  ...["Peloton:peloton", "Betterment:betterment", "Twitch:twitch", "Airtable:airtable", "Intercom:intercom", "Netlify:netlify", "Carta:carta", "Vercel:vercel", "Fivetran:fivetran", "New Relic:newrelic", "PagerDuty:pagerduty", "Lucid Software:lucidsoftware", "SoFi:sofi", "Zscaler:zscaler", "Cockroach Labs:cockroachlabs", "Checkr:checkr", "Epic Games:epicgames", "Rubrik:rubrik", "Relativity Space:relativity", "Verkada:verkada", "Oscar Health:oscar", "Anduril:andurilindustries", "SpaceX:spacex", "Zocdoc:zocdoc", "Riot Games:riotgames", "Recursion:recursionpharmaceuticals", "Ginkgo Bioworks:ginkgobioworks", "IMC Trading:imc", "Akuna Capital:akunacapital", "DRW:drweng", "Jane Street:janestreet", "Yext:yext", "Point72:point72", "Blend:blend", "Appian:appian", "Gemini:gemini", "Anaplan:anaplan", "Smartsheet:smartsheet", "Klaviyo:klaviyo", "Attentive:attentive", "Mixpanel:mixpanel", "Braze:braze", "6sense:6sense", "Algolia:algolia", "Contentful:contentful", "JFrog:jfrog", "LaunchDarkly:launchdarkly", "Nextdoor:nextdoor", "Tanium:tanium", "Axon:axon", "Abnormal Security:abnormalsecurity", "Faire:faire", "Coursera:coursera", "Mozilla:mozilla"].map((s) => ["greenhouse", ...s.split(":")]),
+  ...["Outreach:outreach", "Gopuff:gopuff"].map((s) => ["lever", ...s.split(":")]),
+  ...["Modal:modal", "Cursor:cursor", "Pinecone:pinecone", "Vanta:vanta", "Writer:writer", "ElevenLabs:elevenlabs", "Resend:resend", "Railway:railway", "Airbyte:airbyte", "Plaid:plaid", "Decagon:decagon", "Render:render", "Drata:drata", "Temporal:temporal", "Sierra:sierra", "Hex:hex", "Harvey:harvey"].map((s) => ["ashby", ...s.split(":")]),
   ...["Stripe:stripe", "Airbnb:airbnb", "Databricks:databricks", "Coinbase:coinbase", "Cloudflare:cloudflare", "Figma:figma", "Discord:discord", "Robinhood:robinhood", "Lyft:lyft", "Pinterest:pinterest", "Reddit:reddit", "Instacart:instacart", "Dropbox:dropbox", "Asana:asana", "GitLab:gitlab", "Twilio:twilio", "Okta:okta", "Datadog:datadog", "MongoDB:mongodb", "Elastic:elastic", "Roblox:roblox", "Affirm:affirm", "Chime:chime", "Brex:brex", "Gusto:gusto", "Samsara:samsara", "Toast:toast", "Duolingo:duolingo", "Squarespace:squarespace", "Anthropic:anthropic", "Scale AI:scaleai", "Waymo:waymo", "Flexport:flexport", "DoorDash:doordashusa"].map((s) => ["greenhouse", ...s.split(":")]),
   ...["Palantir:palantir", "Spotify:spotify", "Zoox:zoox"].map((s) => ["lever", ...s.split(":")]),
   ...["OpenAI:openai", "Ramp:ramp", "Notion:notion", "Linear:linear", "PostHog:posthog", "Supabase:supabase", "Replit:replit", "Perplexity:perplexity", "Zapier:zapier", "Snowflake:snowflake", "Cohere:cohere"].map((s) => ["ashby", ...s.split(":")]),
@@ -137,10 +141,40 @@ async function runLimited(items, limit, fn) {
   );
   return out;
 }
+// Companies the job index shows hiring for this search, on systems the browser can read live
+// (Greenhouse, Lever, Ashby): checking them live adds today's postings and full descriptions.
+const INDEX_PICKS = 60;
+function boardFromJobUrl(url) {
+  let m = String(url || "").match(/greenhouse\.io\/(?:embed\/job_app\?for=)?([A-Za-z0-9_-]+)\/jobs\//);
+  if (m) return { ats: "greenhouse", slug: m[1] };
+  m = String(url || "").match(/jobs\.lever\.co\/([A-Za-z0-9_.-]+)\//);
+  if (m) return { ats: "lever", slug: m[1] };
+  m = String(url || "").match(/jobs\.ashbyhq\.com\/([A-Za-z0-9_.%-]+)\//);
+  if (m) return { ats: "ashby", slug: decodeURIComponent(m[1]) };
+  return null;
+}
+function boardsFromIndex(indexJobs, following, max = INDEX_PICKS) {
+  let have = new Set(following.map((b) => `${b.ats}:${String(b.slug).toLowerCase()}`)),
+    found = new Map();
+  for (let j of indexJobs || []) {
+    let b = boardFromJobUrl(j.url);
+    if (!b) continue;
+    let key = `${b.ats}:${b.slug.toLowerCase()}`;
+    if (have.has(key)) continue;
+    let f = found.get(key) || { ...b, name: j.company, count: 0, newest: 0 };
+    f.count += 1;
+    f.newest = Math.max(f.newest, Date.parse(j.published) || 0);
+    found.set(key, f);
+  }
+  // Most matching postings first, then the most recently active.
+  return [...found.values()].sort((a, b) => b.count - a.count || b.newest - a.newest).slice(0, max).map(({ ats, slug, name }) => ({ ats, slug, name, picked: true }));
+}
+window.boardsFromIndex = boardsFromIndex;
 // roles: [{ raw, ... }] from parseJobSearch; returns matching postings with descriptions.
-// area: the place search in force, if any (js/geo-search.js).
-async function loadCompanyJobs(roles, progress = () => {}, area = null) {
-  let boards = companyBoards(),
+// area: the place search in force, if any (js/geo-search.js). extra: more boards for this search only.
+async function loadCompanyJobs(roles, progress = () => {}, area = null, extra = []) {
+  let followed = companyBoards(),
+    boards = [...followed, ...extra],
     names = roles.map((r) => r.raw || r).filter(Boolean),
     done = 0,
     failed = [];
@@ -153,7 +187,8 @@ async function loadCompanyJobs(roles, progress = () => {}, area = null) {
         companyCache.set(key, hit);
       }
     } catch (e) {
-      failed.push(b.name);
+      // A company picked from the index may have moved its board since; only followed ones are reported.
+      if (!b.picked) failed.push(b.name);
       hit = { jobs: [] };
     }
     progress(`Checked ${++done} of ${boards.length} company career sites…`);
@@ -171,6 +206,7 @@ async function loadCompanyJobs(roles, progress = () => {}, area = null) {
   if (need.length) progress(`Reading ${need.length} matching job descriptions from company sites…`);
   await runLimited(need, 10, fillJobDetails);
   feedStats[COMPANY_SOURCE] = matched.length;
+  window.companySitesChecked = { followed: followed.length, picked: extra.length };
   if (failed.length) feedErrors.push(`Couldn’t reach ${failed.length} company site${failed.length === 1 ? "" : "s"}: ${failed.slice(0, 6).join(", ")}${failed.length > 6 ? "…" : ""}.`);
   // Postings beyond the first 200 keep their title and location; the description loads when opened.
   return matched;
@@ -275,9 +311,9 @@ async function loadHackerNews(roles, progress) {
   return out;
 }
 window.hnJob = hnJob;
-// Himalayas (no browser access) and Jooble / Google Jobs / USAJOBS (keys) go through /api/boards.
+// Himalayas, Working Nomads (no browser access) and Jooble / Google Jobs / USAJOBS / Adzuna (keys) go through /api/boards.
 async function loadServerBoards(query, location, progress, area = null) {
-  progress("Loading Himalayas, Google Jobs, Jooble and USAJOBS…");
+  progress("Loading Himalayas, Working Nomads, Google Jobs, Jooble, USAJOBS and Adzuna…");
   try {
     // A place search sends the town (both "Cleveland, OH" and "Cleveland, Ohio") and the distance in miles.
     let r = await fetch("/api/boards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(area ? { query, location: area.town, locationLong: area.townLong, radius: area.townRadius } : { query, location }) }),
@@ -292,7 +328,7 @@ async function loadServerBoards(query, location, progress, area = null) {
     for (let [name, n] of Object.entries(d.counts || {})) feedStats[name] = n;
     // Optional boards without their key: say so, with how to connect them.
     let off = Object.entries(d.configured || {}).filter(([, on]) => !on).map(([name]) => name);
-    if (off.length) feedErrors.push(`Not connected: ${off.join(", ")} (add ${off.map((n) => ({ Jooble: "JOOBLE_API_KEY", "Google Jobs": "SERPAPI_API_KEY", USAJOBS: "USAJOBS_API_KEY + USAJOBS_EMAIL" })[n]).join(", ")} as Cloudflare Secrets, then redeploy).`);
+    if (off.length) feedErrors.push(`Not connected: ${off.join(", ")} (add ${off.map((n) => ({ Jooble: "JOOBLE_API_KEY", "Google Jobs": "SERPAPI_API_KEY", USAJOBS: "USAJOBS_API_KEY + USAJOBS_EMAIL", Adzuna: "ADZUNA_APP_ID + ADZUNA_APP_KEY" })[n]).join(", ")} as Cloudflare Secrets, then redeploy).`);
     for (let [name, err] of Object.entries(d.errors || {})) feedErrors.push(`${name}: ${err}.`);
     return jobs;
   } catch (e) {
@@ -301,7 +337,10 @@ async function loadServerBoards(query, location, progress, area = null) {
   }
 }
 window.loadExtraJobSources = async function (roles, query, location, progress, area = null) {
-  let groups = await Promise.all([loadCompanyJobs(roles, progress, area), loadMuse(roles, progress, area), loadHackerNews(roles, progress), loadServerBoards(query, location, progress, area), typeof loadJobIndex === "function" ? loadJobIndex(roles, progress, area) : []]);
+  // The job index loads first (quickly): the companies it shows hiring are then checked live too.
+  let index = typeof loadJobIndex === "function" ? loadJobIndex(roles, progress, area) : Promise.resolve([]),
+    company = index.then((jobs) => loadCompanyJobs(roles, progress, area, boardsFromIndex(jobs, companyBoards()))),
+    groups = await Promise.all([company, loadMuse(roles, progress, area), loadHackerNews(roles, progress), loadServerBoards(query, location, progress, area), index]);
   return groups.flat();
 };
 
@@ -393,7 +432,7 @@ window.renderCompanyPanel = function () {
   if (!box) return;
   let boards = companyBoards(),
     removed = (data.companyBoardsRemoved || []).length;
-  box.innerHTML = `<details class="company-panel"><summary><b>Company career sites</b> · searching ${boards.length} companies directly (Greenhouse, Lever, Ashby, SmartRecruiters…)</summary>
+  box.innerHTML = `<details class="company-panel"><summary><b>Company career sites</b> · checking ${boards.length} companies live, plus up to ${INDEX_PICKS} more per search that the daily job index (about 40,000 companies) shows hiring for your roles</summary>
 <form class="company-add" onsubmit="event.preventDefault(); companyPanelAdd()">
   <input id="companyadd" type="text" autocomplete="off" placeholder="Type a company name (15,000+ to pick from) or paste a careers page link" aria-label="Company name or careers page" aria-controls="companysuggest" oninput="companySuggest(this.value)" />
   <button class="btn btn-sm btn-primary" type="submit">Add company</button>

@@ -59,17 +59,21 @@ Add keys as **Secret** (encrypted) for both Production and Preview. Secrets only
 
 | Source | How | Setup |
 | --- | --- | --- |
-| **Company career sites** | Each company's own job board, through the public APIs of the hiring systems they use: Greenhouse, Lever, Ashby, SmartRecruiters, Workable, Recruitee. Read directly by your browser. | None. 53 well-known companies are included (Stripe, Airbnb, Databricks, OpenAI, Snowflake, Waymo, DoorDash, …). |
+| **Company career sites** | Each company's own job board, through the public APIs of the hiring systems they use: Greenhouse, Lever, Ashby, SmartRecruiters, Workable, Recruitee. Read directly by your browser. | None. About 125 companies checked to have U.S. jobs are included (Stripe, Airbnb, Databricks, OpenAI, SpaceX, Anduril, Jane Street, Plaid, …). Each search also checks live up to 60 more companies that the job index shows hiring for the searched roles (Greenhouse, Lever and Ashby), which adds same-day postings and full descriptions. |
 | **Job index** (about 1.2 million US jobs from company career sites on Greenhouse, Lever, Ashby, Workday, iCIMS, BambooHR and Paylocity) | A daily index built by `.github/workflows/jobs-index.yml` from the public dataset of [Riley-Dorrington/job-board-aggregator](https://github.com/Riley-Dorrington/job-board-aggregator) (MIT licensed) and published to the Cloudflare Pages project `looney-bin-jobs`. A search downloads only the file for the least common word in each role (usually under 1 MB). Each job links to its official posting. | GitHub repository secrets `CLOUDFLARE_API_TOKEN` (Cloudflare Pages: Edit) and `CLOUDFLARE_ACCOUNT_ID` for the daily workflow |
 | Dice | Dice's job search service (`/api/dice-search`) | None |
 | The Muse | Public API, read by the browser | None |
 | Jobicy, Arbeitnow, Remote OK, Remotive | Public remote-job feeds, read by the browser | None |
 | Himalayas | Public remote-job API, through `/api/boards` | None |
+| Working Nomads | Public remote-job feed, through `/api/boards` (left out of place searches) | None |
+| Adzuna | Large U.S. job aggregator, through `/api/boards`; place searches send the town and distance | Free developer keys at developer.adzuna.com → Cloudflare secrets `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` |
 | Jooble | Job aggregator, through `/api/boards` | Free key at jooble.org/api/about → Cloudflare secret `JOOBLE_API_KEY` |
 | **Google Jobs** (includes postings from LinkedIn, Indeed, Dice, ZipRecruiter, Glassdoor) | Google's job listings through SerpApi, `/api/boards`; one search per job search, cached 6 hours. Each card links to every board the posting is on, and the LinkedIn / Indeed / Dice board filters show them. | Free plan (250 searches/month, no card) at serpapi.com → Cloudflare secret `SERPAPI_API_KEY` |
 | LinkedIn, Indeed, ZipRecruiter, Google Jobs | No public jobs API (LinkedIn's is partner-only, and scraping breaks their terms); links open the same search on their sites with your filters applied (posting age, remote/hybrid/on-site, job type, level, newest first) | — |
 
 Also searched automatically: **Hacker News "Who is hiring?"** (this month's thread of direct-from-company posts, via HN's public Algolia search; no key) and **USAJOBS** (US federal jobs; free key at developer.usajobs.gov → Cloudflare Secrets `USAJOBS_API_KEY` and `USAJOBS_EMAIL`, the email you registered with).
+
+**Duplicates:** the same posting found on several boards (e.g. Google Jobs and Dice, or the job index and the company's own board) shows as one card with a link to each board. Postings are matched by the hiring system's posting ID, the link, or the same title, company and town.
 
 **Paste search results:** on Dice, LinkedIn, Indeed or any job site's search results, press Ctrl/⌘+A then Ctrl/⌘+C and paste into the box under **Save jobs from Dice, LinkedIn & Indeed**. Every job on the page comes in with its official link, company, location, salary and posting date; you confirm before they're saved.
 
