@@ -70,7 +70,8 @@ async function diceRequest(payload, sessionId = "", protocolVersion = "") {
       ...(sessionId ? { "Mcp-Session-Id": sessionId } : {}),
     },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(12_000),
+    // Dice often takes 10–15 seconds per search; 12 s cut off real answers.
+    signal: AbortSignal.timeout(25_000),
   });
   const session = response.headers.get("Mcp-Session-Id") || sessionId;
   const text = await response.text();
