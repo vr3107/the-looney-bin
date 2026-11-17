@@ -381,7 +381,7 @@ const EXTERNAL_BOARDS = [
   ["Google Jobs", "https://www.google.com/search"],
 ];
 // Boards whose postings are listed inside the app (the rest open as external searches).
-const LISTED_BOARDS = ["Company sites", "Job index", "Dice", "Google Jobs", "HN Who is hiring", "USAJOBS", "The Muse", "Himalayas", "Jooble", "Jobicy", "Arbeitnow", "Remote OK", "Remotive"];
+const LISTED_BOARDS = ["Company sites", "Job index", "Dice", "Google Jobs", "HN Who is hiring", "USAJOBS", "Himalayas", "Jooble", "Jobicy", "Arbeitnow", "Remote OK", "Remotive"];
 function selectedBoard() {
   return document.getElementById("boardfilter")?.value || "all";
 }

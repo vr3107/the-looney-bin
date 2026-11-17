@@ -1,7 +1,7 @@
 // Jobs straight from companies' own career sites, through the public job-board APIs of the
 // hiring systems they use (Greenhouse, Lever, Ashby, SmartRecruiters, Workable, Recruitee).
 // These APIs allow browser requests, so each visitor's browser fetches them directly.
-// Plus extra job boards: The Muse and Hacker News (browser) and Himalayas / Jooble / Google Jobs /
+// Plus extra job boards: Hacker News (browser) and Himalayas / Jooble / Google Jobs /
 // USAJOBS (/api/boards).
 
 // Starter list: company boards checked to return U.S. jobs (Nov 2026). Users can add more, and each
@@ -303,7 +303,7 @@ window.openDetails = function (id) {
 window.loadCompanyJobs = loadCompanyJobs;
 
 // ---------- extra job boards ----------
-// The Muse: through /api/muse; no keyword search, so pick categories from the query.
+// The Muse: no longer searched — its public jobs API stopped answering in Nov 2026 (kept for reference).
 const MUSE_CATEGORIES = [
   [/data (engineer|scien|analy)|analytics|machine learning|\bml\b|\bai\b|bi developer/, ["Data and Analytics", "Data Science"]],
   [/software|developer|engineer|devops|sre|backend|frontend|full ?stack|cloud|platform/, ["Software Engineering", "IT"]],
@@ -413,7 +413,7 @@ window.loadExtraJobSources = async function (roles, query, location, progress, a
   let index = typeof loadJobIndex === "function" ? loadJobIndex(roles, progress, area) : Promise.resolve([]),
     company = index.then((jobs) => loadCompanyJobs(roles, progress, area, boardsFromIndex(jobs, companyBoards()))),
     workday = index.then((jobs) => loadWorkday(roles, progress, jobs)),
-    groups = await Promise.all([company, workday, loadMuse(roles, progress, area), loadHackerNews(roles, progress), loadServerBoards(query, location, progress, area), index]);
+    groups = await Promise.all([company, workday, loadHackerNews(roles, progress), loadServerBoards(query, location, progress, area), index]);
   // Workday postings count under "Company sites".
   feedStats[COMPANY_SOURCE] = (feedStats[COMPANY_SOURCE] || 0) + groups[1].length;
   return groups.flat();
