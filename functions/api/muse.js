@@ -18,7 +18,7 @@ export async function onRequestGet({ request }) {
   if (hit) return new Response(hit.body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   let r;
   try {
-    r = await fetch(target, { headers: { Accept: "application/json" }, redirect: "manual", signal: AbortSignal.timeout(12_000) });
+    r = await fetch(target, { headers: { Accept: "application/json", "User-Agent": "TheLooneyBin/1.0 (+https://the-looney-bin.pages.dev)" }, redirect: "manual", signal: AbortSignal.timeout(12_000) });
   } catch (e) {
     return json({ error: "muse_unavailable" }, 502);
   }
