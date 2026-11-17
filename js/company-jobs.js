@@ -35,7 +35,7 @@ async function getJson(url, opts = {}) {
   return r.json();
 }
 function companyJob(board, id, title, location, url, description, published, extra = {}) {
-  let job = baseJob(COMPANY_SOURCE, `${board.ats}:${board.slug}:${id}`, String(title || "").replace(/\s+/g, " ").trim(), board.name, location, url, description, [ATS_LABEL[board.ats], ...(extra.tags || [])].filter(Boolean), published, extra.salary || "");
+  let job = baseJob(COMPANY_SOURCE, `${board.ats}:${board.slug}:${id}`, String(title || "").replace(/\s+/g, " ").trim(), extra.company || board.name, location, url, description, [ATS_LABEL[board.ats], ...(extra.tags || [])].filter(Boolean), published, extra.salary || "");
   job.sourceHome = extra.home || url;
   job.ats = board.ats;
   job.atsSlug = board.slug;
@@ -48,7 +48,7 @@ const ATS_READERS = {
   async greenhouse(b) {
     let d = await getJson(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(b.slug)}/jobs`);
     return (d.jobs || []).map((j) =>
-      companyJob(b, j.id, j.title, j.location?.name, j.absolute_url, "", j.first_published || j.updated_at, { needsDetails: true, tags: (j.departments || []).map((x) => x.name), home: `https://boards.greenhouse.io/${b.slug}` }),
+      companyJob(b, j.id, j.title, j.location?.name, j.absolute_url, "", j.first_published || j.updated_at, { needsDetails: true, tags: (j.departments || []).map((x) => x.name), home: `https://boards.greenhouse.io/${b.slug}`, company: b.picked && j.company_name ? String(j.company_name).trim() : "" }),
     );
   },
   async lever(b) {
