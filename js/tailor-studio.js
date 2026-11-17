@@ -255,7 +255,7 @@ function tsOpen(jobId) {
     downloads =
       st.format === "pdf"
         ? dl("downloadTailoredPdf", "Download .pdf") + dl("downloadTailoredDocx", ".docx") + dl("downloadTailoredTxt", ".txt")
-        : dl("downloadTailoredDocx", "Download .docx") + dl("downloadTailoredTxt", ".txt"),
+        : dl("downloadTailoredDocx", "Download .docx") + dl("downloadTailoredPdf", ".pdf") + dl("downloadTailoredTxt", ".txt"),
     consented = data.aiConsent === true;
   document.body.insertAdjacentHTML(
     "beforeend",

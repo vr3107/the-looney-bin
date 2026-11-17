@@ -173,6 +173,25 @@ window.searchResume = async function (id) {
   document.getElementById("location").value = data.profile.location || "";
   await window.searchBoards();
 };
+// Read resume files (.docx / .pdf) into the library. Returns { imported, failures }.
+window.importResumeFiles = async function (files) {
+  let imported = [],
+    failures = [];
+  for (let file of files) {
+    try {
+      if (!/\.(docx|pdf)$/i.test(file.name)) throw new Error("only .docx and .pdf files can be read");
+      if (file.size > 10 * 1024 * 1024) throw new Error("the file is larger than 10 MB");
+      let { text, type } = await window.readResumeFile(file);
+      let r = { id: resumeId(), name: file.name, text: window.trimResumeText(text), targetRoles: data.profile.role || "", createdAt: Date.now(), originalType: type, originalFileName: file.name };
+      await storeResumeFile(r.id, file);
+      data.resumes.push(r);
+      imported.push(r);
+    } catch (err) {
+      failures.push(`${file.name}: ${err.message}`);
+    }
+  }
+  return { imported, failures };
+};
 document.getElementById("resume-file").onchange = async (e) => {
   let files = [...(e.target.files || [])];
   if (!files.length) return;

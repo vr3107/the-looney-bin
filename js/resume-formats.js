@@ -143,7 +143,10 @@ function saveBlob(blob, fileName) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+// Set while downloading a saved resume version from a job's window (not the open draft).
+window.resumeDownloadOverride = null;
 function tailoredDraftText() {
+  if (window.resumeDownloadOverride) return window.resumeDownloadOverride.text;
   return composedResume(
     document.getElementById("tailored-summary")?.value || "",
     document.getElementById("tailored-body")?.value || "",
@@ -151,7 +154,8 @@ function tailoredDraftText() {
 }
 function tailoredFileName(baseId, ext) {
   let base = data.resumes.find((x) => x.id === baseId);
-  return (base?.originalFileName || base?.name || "the-looney-bin-resume").replace(/\.[^.]+$/, "") + "-tailored." + ext;
+  let suffix = window.resumeDownloadOverride ? window.resumeDownloadOverride.suffix : "-tailored";
+  return (base?.originalFileName || base?.name || "the-looney-bin-resume").replace(/\.[^.]+$/, "") + suffix + "." + ext;
 }
 // Build a clean PDF in the usual resume layout (centered name and contact line, ruled
 // headings, bold labels, bold job titles with dates on the right, wrapped bullets). Text is
@@ -222,9 +226,29 @@ async function makeResumePdf(text, style = {}) {
   let drawLine = (parts, x, sz, align = "left", maxW = W - ML - MR) => {
     let total = parts.reduce((a, p) => a + p.w, 0),
       cx = align === "center" ? ML + (maxW - total) / 2 : align === "right" ? x - total : x;
-    for (let p of parts) {
-      if (p.text !== " ") page.drawText(p.text, { x: cx, y, size: p.size || sz, font: p.font, color: ink });
-      cx += p.w;
+    // Draw runs of the same font and size as one string with real spaces, so text extractors
+    // (and ATS systems) read "Data scientist with", not "Datascientistwith".
+    let i = 0;
+    while (i < parts.length) {
+      let p = parts[i];
+      if (p.text === " ") {
+        cx += p.w;
+        i++;
+        continue;
+      }
+      let str = p.text,
+        w = p.w,
+        j = i + 1;
+      while (j < parts.length && parts[j].font === p.font && (parts[j].size || sz) === (p.size || sz)) {
+        // a trailing space only joins when another word of the same style follows
+        if (parts[j].text === " " && !(parts[j + 1] && parts[j + 1].text !== " " && parts[j + 1].font === p.font && (parts[j + 1].size || sz) === (p.size || sz))) break;
+        str += parts[j].text;
+        w += parts[j].w;
+        j++;
+      }
+      page.drawText(str, { x: cx, y, size: p.size || sz, font: p.font, color: ink });
+      cx += w;
+      i = j;
     }
   };
   let paragraph = (runs, { x = ML, indent = 0, sz = size, align = "left", gapAfter = 0, bulletChar = "" } = {}) => {
@@ -322,6 +346,49 @@ async function pdfStyleOf(blob) {
     return {};
   }
 }
+// The Word file's look for a PDF made from it: margins, body and name size, serif or sans-serif.
+async function docxStyleOf(blob) {
+  try {
+    let JSZip = await loadJSZip(),
+      zip = await JSZip.loadAsync(blob),
+      doc = await zip.file("word/document.xml")?.async("text"),
+      styles = (await zip.file("word/styles.xml")?.async("text")) || "",
+      theme = (await zip.file("word/theme/theme1.xml")?.async("text")) || "";
+    if (!doc) return {};
+    let num = (re, src) => {
+        let m = src.match(re);
+        return m ? Number(m[1]) : null;
+      },
+      left = num(/<w:pgMar[^>]*w:left="(\d+)"/, doc),
+      top = num(/<w:pgMar[^>]*w:top="(\d+)"/, doc),
+      defaults = (styles.match(/<w:docDefaults>[\s\S]*?<\/w:docDefaults>/) || [""])[0],
+      normal = (styles.match(/<w:style [^>]*w:styleId="Normal"[\s\S]*?<\/w:style>/) || [""])[0],
+      defaultSize = num(/<w:sz w:val="(\d+)"/, normal) || num(/<w:sz w:val="(\d+)"/, defaults) || 22,
+      // Body size: the size used for the most text in the document.
+      counts = new Map();
+    for (let m of doc.matchAll(/<w:r>([\s\S]*?)<\/w:r>|<w:r [^>]*>([\s\S]*?)<\/w:r>/g)) {
+      let run = m[1] || m[2] || "",
+        sz = num(/<w:sz w:val="(\d+)"/, run) || defaultSize,
+        len = (run.match(/<w:t[^>]*>([^<]*)<\/w:t>/g) || []).join("").replace(/<[^>]+>/g, "").length;
+      counts.set(sz, (counts.get(sz) || 0) + len);
+    }
+    let body = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || defaultSize,
+      firstPara = (doc.match(/<w:p[ >][\s\S]*?<\/w:p>/g) || []).find((p) => /<w:t[^>]*>[^<]*\S/.test(p)) || "",
+      nameSize = Math.max(...[...firstPara.matchAll(/<w:sz w:val="(\d+)"/g)].map((m) => Number(m[1])), body),
+      font =
+        (doc.match(/<w:rFonts [^>]*w:ascii="([^"]+)"/) || normal.match(/<w:rFonts [^>]*w:ascii="([^"]+)"/) || defaults.match(/<w:rFonts [^>]*w:ascii="([^"]+)"/) || theme.match(/<a:minorFont>\s*<a:latin typeface="([^"]+)"/) || [])[1] || "";
+    return {
+      family: /times|garamond|georgia|cambria|book antiqua|palatino|bookman|century|baskerville|serif/i.test(font) && !/sans/i.test(font) ? "serif" : "sans",
+      left: left ? left / 20 : undefined,
+      top: top ? top / 20 : undefined,
+      size: body / 2,
+      nameSize: nameSize / 2,
+    };
+  } catch {
+    return {};
+  }
+}
+window.docxStyleOf = docxStyleOf;
 window.makeResumePdf = makeResumePdf;
 window.downloadTailoredPdf = async function (baseId) {
   try {
@@ -787,9 +854,16 @@ window.downloadTailoredPdf = async function (baseId) {
     let base = data.resumes.find((x) => x.id === baseId),
       text = tailoredDraftText(),
       original = base?.originalType === "pdf" ? await getResumeFile(baseId).catch(() => null) : null,
-      style = original ? await pdfStyleOf(original) : {};
+      word = !original ? await findOriginalDocx(base).catch(() => null) : null,
+      style = original ? await pdfStyleOf(original) : word ? await docxStyleOf(word) : {};
     saveBlob(await makeResumePdf(text, style), tailoredFileName(baseId, "pdf"));
-    toast(original ? "Tailored PDF downloaded in your resume’s layout, with clean text that ATS systems read correctly." : "Tailored PDF downloaded.");
+    toast(
+      original
+        ? "PDF downloaded in your resume’s layout, with clean text that ATS systems read correctly."
+        : word
+          ? "PDF downloaded with your Word resume’s margins, text size and font style (serif or sans-serif), as clean text ATS systems read correctly."
+          : "PDF downloaded.",
+    );
   } catch (e) {
     toast(e.message || "PDF export failed. Review the resume and try again.");
   }
