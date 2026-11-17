@@ -34,8 +34,8 @@ const text = (s, n = 4000) =>
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, n);
-async function getJson(url, init = {}) {
-  const r = await fetch(url, { ...init, headers: { Accept: "application/json", ...(init.headers || {}) }, signal: AbortSignal.timeout(12_000) });
+async function getJson(url, init = {}, ms = 12_000) {
+  const r = await fetch(url, { ...init, headers: { Accept: "application/json", ...(init.headers || {}) }, signal: AbortSignal.timeout(ms) });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
@@ -106,7 +106,8 @@ async function googleJobs(env, query, location, place) {
   let d = cache ? await cache.match(cacheKey).then((r) => r?.json()).catch(() => null) : null;
   if (!d) {
     params.set("api_key", env.SERPAPI_API_KEY);
-    d = await getJson(`https://serpapi.com/search.json?${params}`);
+    // A new Google search through SerpApi can take 15–20 seconds.
+    d = await getJson(`https://serpapi.com/search.json?${params}`, {}, 28_000);
     if (d.error && !/hasn.t returned any results/i.test(d.error)) throw new Error(d.error);
     if (cache) await cache.put(cacheKey, new Response(JSON.stringify(d), { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=21600" } })).catch(() => {});
   }

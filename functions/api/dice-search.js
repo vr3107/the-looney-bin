@@ -177,7 +177,8 @@ export async function onRequestPost({ request }) {
 
   try {
     const filters = diceFilters(location, body?.postedHours, miles);
-    const connection = await initializeDice();
+    // Dice's service sometimes refuses the first connection; one retry usually gets through.
+    const connection = await initializeDice().catch(() => new Promise((ok) => setTimeout(ok, 800)).then(initializeDice));
     let requestId = 2;
     const results = await Promise.allSettled(roleQueries.map(async (keyword) => {
       const pages = [];
