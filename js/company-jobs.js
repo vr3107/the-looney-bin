@@ -143,7 +143,78 @@ async function runLimited(items, limit, fn) {
 }
 // Companies the job index shows hiring for this search, on systems the browser can read live
 // (Greenhouse, Lever, Ashby): checking them live adds today's postings and full descriptions.
-const INDEX_PICKS = 60;
+const INDEX_PICKS = 100;
+// Large employers on Workday, searched live by keyword through /api/workday (Workday sites can't be
+// read by browsers). tenant:wdN:site:name — checked to answer (Nov 2026).
+const WORKDAY_COMPANIES = [
+  "capitalone:wd12:capital_one:Capital One", "cisco:wd5:cisco_careers:Cisco", "nvidia:wd5:nvidiaexternalcareersite:NVIDIA", "salesforce:wd12:external_career_site:Salesforce",
+  "verizon:wd12:verizon-careers:Verizon", "mastercard:wd1:corporatecareers:Mastercard", "keybank:wd5:external_career_site:KeyBank", "ccf:wd1:clevelandcliniccareers:Cleveland Clinic",
+  "target:wd5:targetcareers:Target", "workday:wd5:workday:Workday", "hpe:wd5:jobsathpe:Hewlett Packard Enterprise", "cardinalhealth:wd1:ext:Cardinal Health",
+  "humana:wd5:humana_external_career_site:Humana", "cigna:wd5:cignacareers:Cigna", "mckesson:wd3:external_careers:McKesson", "pfizer:wd1:pfizercareers:Pfizer",
+  "medtronic:wd1:medtroniccareers:Medtronic", "vanguard:wd5:vanguard_external:Vanguard", "tmobile:wd1:external:T-Mobile", "analogdevices:wd1:external:Analog Devices",
+  "rockwellautomation:wd1:external_rockwell_automation:Rockwell Automation", "thermofisher:wd5:thermofishercareers:Thermo Fisher", "jci:wd5:jci:Johnson Controls", "astrazeneca:wd3:careers:AstraZeneca",
+  "caci:wd1:external:CACI", "ngc:wd1:northrop_grumman_external_site:Northrop Grumman", "micron:wd1:external:Micron", "broadcom:wd1:external_career:Broadcom",
+  "nike:wd1:nke:Nike", "disney:wd5:disneycareer:Disney", "usaa:wd1:usaajobswd:USAA", "blackrock:wd1:blackrock_professional:BlackRock",
+  "fis:wd5:searchjobs:FIS", "fiserv:wd5:ext:Fiserv", "elevancehealth:wd1:ant:Elevance Health", "cvshealth:wd1:cvs_health_careers:CVS Health",
+  "abbott:wd5:abbottcareers:Abbott", "regeneron:wd1:careers:Regeneron", "geaerospace:wd5:ge_externalsite:GE Aerospace", "huntington:wd12:hnbcareers:Huntington Bank",
+].map((s) => {
+  let [tenant, wd, site, name] = s.split(":");
+  return { tenant, wd, site, name };
+});
+const WORKDAY_PICKS = 40;
+// "https://capitalone.wd12.myworkdayjobs.com/en-US/capital_one/job/…" → { tenant, wd, site, path }
+function workdayFromUrl(url) {
+  let m = String(url || "").match(/^https:\/\/([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?([A-Za-z0-9_.-]+)\/job\/(.+)$/i);
+  return m ? { tenant: m[1].toLowerCase(), wd: m[2].toLowerCase(), site: m[3], path: m[4].replace(/[?#].*$/, "").toLowerCase() } : null;
+}
+window.workdayFromUrl = workdayFromUrl;
+// Workday employers the job index shows hiring for this search (besides the list above).
+function workdayFromIndex(indexJobs, max = WORKDAY_PICKS) {
+  let have = new Set(WORKDAY_COMPANIES.map((b) => b.tenant)),
+    found = new Map();
+  for (let j of indexJobs || []) {
+    let b = workdayFromUrl(j.url);
+    if (!b || have.has(b.tenant)) continue;
+    let key = `${b.tenant}|${b.site.toLowerCase()}`,
+      f = found.get(key) || { tenant: b.tenant, wd: b.wd, site: b.site, name: j.company, count: 0 };
+    f.count += 1;
+    found.set(key, f);
+  }
+  return [...found.values()].sort((a, b) => b.count - a.count).slice(0, max).map(({ count, ...b }) => b);
+}
+window.workdayFromIndex = workdayFromIndex;
+async function loadWorkday(roles, progress = () => {}, indexJobs = []) {
+  let picked = workdayFromIndex(indexJobs),
+    batches = [WORKDAY_COMPANIES, picked].filter((b) => b.length),
+    queries = roles.map((r) => String(r.raw || r).trim()).filter(Boolean).slice(0, 3),
+    out = [],
+    failed = 0;
+  if (!queries.length) return [];
+  progress(`Searching ${WORKDAY_COMPANIES.length + picked.length} Workday career sites…`);
+  await Promise.all(
+    queries.flatMap((query) =>
+      batches.map(async (boards) => {
+        try {
+          let r = await fetch("/api/workday", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, boards }) }),
+            d = await r.json();
+          if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+          failed += (d.failed || []).length;
+          for (let j of d.jobs || []) {
+            let job = baseJob(COMPANY_SOURCE, j.id, j.title, j.company || indexCompanyName(String(j.id).split(":")[1]), j.location || "Not specified", j.url, "", ["Workday"], j.published, "");
+            let w = workdayFromUrl(j.url);
+            if (w) job.atsKey = `workday:${w.tenant}:${w.path}`;
+            out.push(job);
+          }
+        } catch (e) {
+          feedErrors.push(`Workday career sites: ${e.message}.`);
+        }
+      }),
+    ),
+  );
+  window.workdaySitesChecked = WORKDAY_COMPANIES.length + picked.length;
+  return out;
+}
+window.loadWorkday = loadWorkday;
 function boardFromJobUrl(url) {
   let m = String(url || "").match(/greenhouse\.io\/(?:embed\/job_app\?for=)?([A-Za-z0-9_-]+)\/jobs\//);
   if (m) return { ats: "greenhouse", slug: m[1] };
@@ -340,7 +411,10 @@ window.loadExtraJobSources = async function (roles, query, location, progress, a
   // The job index loads first (quickly): the companies it shows hiring are then checked live too.
   let index = typeof loadJobIndex === "function" ? loadJobIndex(roles, progress, area) : Promise.resolve([]),
     company = index.then((jobs) => loadCompanyJobs(roles, progress, area, boardsFromIndex(jobs, companyBoards()))),
-    groups = await Promise.all([company, loadMuse(roles, progress, area), loadHackerNews(roles, progress), loadServerBoards(query, location, progress, area), index]);
+    workday = index.then((jobs) => loadWorkday(roles, progress, jobs)),
+    groups = await Promise.all([company, workday, loadMuse(roles, progress, area), loadHackerNews(roles, progress), loadServerBoards(query, location, progress, area), index]);
+  // Workday postings count under "Company sites".
+  feedStats[COMPANY_SOURCE] = (feedStats[COMPANY_SOURCE] || 0) + groups[1].length;
   return groups.flat();
 };
 
@@ -432,7 +506,7 @@ window.renderCompanyPanel = function () {
   if (!box) return;
   let boards = companyBoards(),
     removed = (data.companyBoardsRemoved || []).length;
-  box.innerHTML = `<details class="company-panel"><summary><b>Company career sites</b> · checking ${boards.length} companies live, plus up to ${INDEX_PICKS} more per search that the daily job index (about 40,000 companies) shows hiring for your roles</summary>
+  box.innerHTML = `<details class="company-panel"><summary><b>Company career sites</b> · checking ${boards.length} companies and ${WORKDAY_COMPANIES.length} large Workday employers live, plus up to ${INDEX_PICKS + WORKDAY_PICKS} more per search that the daily job index (about 45,000 companies) shows hiring for your roles</summary>
 <form class="company-add" onsubmit="event.preventDefault(); companyPanelAdd()">
   <input id="companyadd" type="text" autocomplete="off" placeholder="Type a company name (15,000+ to pick from) or paste a careers page link" aria-label="Company name or careers page" aria-controls="companysuggest" oninput="companySuggest(this.value)" />
   <button class="btn btn-sm btn-primary" type="submit">Add company</button>

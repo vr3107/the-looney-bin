@@ -55,6 +55,8 @@ function indexJob(row) {
   let lv = !gh && String(url).match(/jobs\.lever\.co\/([A-Za-z0-9_.-]+)\/([0-9a-f-]{36})/i),
     ab = !gh && !lv && String(url).match(/jobs\.ashbyhq\.com\/([A-Za-z0-9_.%-]+)\/([0-9a-f-]{36})/i);
   if (lv) Object.assign(job, { atsKey: `lever:${lv[1].toLowerCase()}:${lv[2].toLowerCase()}` });
+  let wdj = !gh && !lv && !ab && typeof workdayFromUrl === "function" && workdayFromUrl(url);
+  if (wdj) Object.assign(job, { atsKey: `workday:${wdj.tenant}:${wdj.path}` });
   if (ab) Object.assign(job, { atsKey: `ashby:${decodeURIComponent(ab[1]).toLowerCase()}:${ab[2].toLowerCase()}` });
   return job;
 }
