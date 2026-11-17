@@ -143,7 +143,7 @@ async function runLimited(items, limit, fn) {
 }
 // Companies the job index shows hiring for this search, on systems the browser can read live
 // (Greenhouse, Lever, Ashby): checking them live adds today's postings and full descriptions.
-const INDEX_PICKS = 100;
+const INDEX_PICKS = 150;
 // Large employers on Workday, searched live by keyword through /api/workday (Workday sites can't be
 // read by browsers). tenant:wdN:site:name — checked to answer (Nov 2026).
 const WORKDAY_COMPANIES = [
@@ -161,7 +161,7 @@ const WORKDAY_COMPANIES = [
   let [tenant, wd, site, name] = s.split(":");
   return { tenant, wd, site, name };
 });
-const WORKDAY_PICKS = 40;
+const WORKDAY_PICKS = 80;
 // "https://capitalone.wd12.myworkdayjobs.com/en-US/capital_one/job/…" → { tenant, wd, site, path }
 function workdayFromUrl(url) {
   let m = String(url || "").match(/^https:\/\/([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?([A-Za-z0-9_.-]+)\/job\/(.+)$/i);
@@ -185,8 +185,12 @@ function workdayFromIndex(indexJobs, max = WORKDAY_PICKS) {
 window.workdayFromIndex = workdayFromIndex;
 async function loadWorkday(roles, progress = () => {}, indexJobs = []) {
   let picked = workdayFromIndex(indexJobs),
-    batches = [WORKDAY_COMPANIES, picked].filter((b) => b.length),
-    queries = roles.map((r) => String(r.raw || r).trim()).filter(Boolean).slice(0, 3),
+    // up to 40 sites per request
+    batches = [WORKDAY_COMPANIES, picked.slice(0, 40), picked.slice(40, 80)].filter((b) => b.length),
+    typed = roles.map((r) => String(r.raw || r).trim()).filter(Boolean).slice(0, 3),
+    // With "Related titles" on, a related title is searched too when fewer than three roles are typed.
+    related = window.searchRelatedTitles !== false && typeof relatedTitles === "function" ? roles.slice(0, 2).flatMap((r) => relatedTitles(r, 1)) : [],
+    queries = [...new Set([...typed, ...related])].slice(0, Math.max(3, typed.length)),
     out = [],
     failed = 0;
   if (!queries.length) return [];

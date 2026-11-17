@@ -88,6 +88,8 @@ window.jobPassesFilters = function (j) {
     level = chipValue("levelfilter"),
     years = chipValue("yearsfilter"),
     q = (document.getElementById("resultsearch")?.value || "").trim().toLowerCase();
+  // "Related titles" off: only titles matching what was typed (and company-name matches).
+  if (window.searchRelatedTitles === false && typeof j.roleScore === "number" && j.roleScore > 0 && j.roleScore < 88) return false;
   if (wp !== "all" && jobWorkplace(j) !== wp) return false;
   if (type !== "all" && jobType(j) !== type) return false;
   if (level !== "all" && jobLevel(j) !== level) return false;
@@ -104,12 +106,38 @@ window.refreshFilterChips = function () {
     let def = s.id === "sortfilter" ? "match" : "all";
     s.classList.toggle("chip-on", s.value !== def);
   });
+  // Follows the saved setting (it can arrive later from the account).
+  window.searchRelatedTitles = !(data.search && data.search.related === false);
+  let rel = document.getElementById("relatedtoggle");
+  if (rel) {
+    let on = window.searchRelatedTitles !== false;
+    rel.textContent = on ? "Related titles: on" : "Related titles: off";
+    rel.setAttribute("aria-pressed", String(on));
+    rel.classList.toggle("chip-on", on);
+  }
   let btn = document.getElementById("hiddentoggle");
   if (btn) {
     let n = hiddenJobs().length;
     btn.textContent = window.showHiddenJobs ? `Back to results` : `Hidden jobs${n ? " · " + n : ""}`;
     btn.classList.toggle("chip-on", window.showHiddenJobs);
   }
+};
+// Related titles: on by default; the choice is saved with the search settings.
+window.searchRelatedTitles = !(data.search && data.search.related === false);
+window.toggleRelatedTitles = function () {
+  window.searchRelatedTitles = !window.searchRelatedTitles;
+  data.search = { ...(data.search || {}), related: window.searchRelatedTitles };
+  persist();
+  refreshFilterChips();
+  // Turning it on asks the sources about related titles too; turning it off just narrows the list.
+  if (window.searchRelatedTitles && typeof liveMode !== "undefined" && liveMode) window.searchBoards();
+  else window.applyJobFilters();
+};
+// Keep the switch's label right when settings load or change (including from the account).
+const relatedBaseUpdateUI = window.updateUI;
+window.updateUI = function () {
+  relatedBaseUpdateUI.apply(this, arguments);
+  window.refreshFilterChips?.();
 };
 window.applyJobFilters = function () {
   liveShown = 60;
@@ -229,3 +257,5 @@ window.jobCardHtml = function (x) {
   </aside>
 </article>`;
 };
+// Show the saved filter settings (e.g. "Related titles: off") as soon as the page is ready.
+document.addEventListener("DOMContentLoaded", () => window.refreshFilterChips?.());

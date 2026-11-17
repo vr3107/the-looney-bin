@@ -92,6 +92,27 @@ const ROLE_FAMILIES = {
   "data center": ["critical facilities", "facility engineer", "facilities engineer", "data center operations", "data center technician", "network engineer", "systems engineer", "infrastructure engineer", "electrical engineer"],
   "qa engineer": ["test engineer", "sdet", "automation engineer", "qa analyst", "quality engineer", "qa"],
   "ux designer": ["product designer", "ui designer", "ux researcher", "interaction designer", "ux", "ui"],
+  "data architect": ["data engineer", "solutions architect", "enterprise architect", "database architect", "cloud architect", "analytics engineer"],
+  "analytics engineer": ["data engineer", "bi engineer", "bi developer", "data analyst", "etl developer"],
+  "solutions architect": ["cloud architect", "solutions engineer", "enterprise architect", "technical architect", "sales engineer"],
+  "network engineer": ["network administrator", "systems engineer", "infrastructure engineer", "network architect", "noc engineer"],
+  "systems engineer": ["systems administrator", "infrastructure engineer", "network engineer", "devops engineer", "site reliability engineer"],
+  "database administrator": ["database engineer", "data engineer", "sql developer", "database developer", "dba"],
+  "sre": ["site reliability engineer", "devops engineer", "platform engineer", "infrastructure engineer"],
+  "site reliability engineer": ["devops engineer", "platform engineer", "infrastructure engineer", "cloud engineer"],
+  "full stack developer": ["fullstack engineer", "software engineer", "web developer", "frontend developer", "backend developer"],
+  "frontend developer": ["frontend engineer", "ui developer", "web developer", "javascript developer", "react developer"],
+  "backend developer": ["backend engineer", "software engineer", "api developer", "python developer", "java developer"],
+  "financial analyst": ["fp a analyst", "finance analyst", "budget analyst", "accountant", "business analyst", "investment analyst"],
+  "accountant": ["staff accountant", "senior accountant", "accounting specialist", "financial analyst", "auditor", "bookkeeper"],
+  "registered nurse": ["rn", "nurse", "staff nurse", "clinical nurse", "nurse case manager", "charge nurse"],
+  "mechanical engineer": ["design engineer", "manufacturing engineer", "product engineer", "project engineer", "process engineer"],
+  "electrical engineer": ["controls engineer", "hardware engineer", "power engineer", "electronics engineer", "design engineer"],
+  "marketing manager": ["digital marketing manager", "product marketing manager", "growth manager", "brand manager", "marketing specialist"],
+  "sales representative": ["account executive", "sales associate", "business development representative", "sales development representative", "account manager"],
+  "customer success manager": ["account manager", "customer success", "client success manager", "implementation manager"],
+  "technical support": ["support engineer", "help desk technician", "it support specialist", "desktop support", "service desk analyst"],
+  "it support": ["help desk technician", "desktop support", "it technician", "service desk analyst", "technical support engineer"],
 };
 
 // One combined pass for the word-level phrases (much faster on long descriptions).
@@ -253,5 +274,16 @@ function quickJobMatch(job, text) {
     pool = [...d.title, ...d.company, ...companyTokens(job.company)];
   return q.every((w) => tokenIn(w, pool) || pool.some((p) => p.startsWith(w) && w.length >= 2));
 }
+// Related job titles worth searching for a role (only multi-word titles ending in a role noun, so
+// each is a real title): "data engineer" → ["analytics engineer", "data architect", "etl developer", …].
+const TITLE_ENDINGS = /\b(engineer|developer|analyst|scientist|architect|manager|specialist|administrator|designer|consultant|technician|accountant|nurse|executive|representative|owner|master|researcher|auditor|bookkeeper)$/;
+function relatedTitles(term, max = 4) {
+  let t = asTerm(term);
+  if (t.exact) return [];
+  let key = coreTokens(t.tokens).join(" "),
+    family = ROLE_FAMILIES[key] || ROLE_FAMILIES[key.replace(/ (developer|engineer)$/, " engineer")] || [];
+  return family.filter((p) => p.includes(" ") && TITLE_ENDINGS.test(p) && p !== key).slice(0, max);
+}
+window.relatedTitles = relatedTitles;
 window.parseJobSearch = parseJobSearch;
 window.quickJobMatch = quickJobMatch;

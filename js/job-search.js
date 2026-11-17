@@ -560,8 +560,14 @@ async function searchBoards() {
       saved = new Set(data.jobs.map((x) => x.url).filter(Boolean));
     window.lastParsedSearch = parsedSearch;
     // Dice, company career sites, and the other boards load together.
+    // "Related titles" on: Dice is also asked about one related title per searched role (up to 4 in all).
+    let diceQuery = plainQuery;
+    if (window.searchRelatedTitles !== false && typeof relatedTitles === "function") {
+      let extra = roleQueries.slice(0, 2).flatMap((r) => relatedTitles(r, 1));
+      diceQuery = [...new Set([...roleQueries.map((t) => t.raw), ...extra])].slice(0, 4).join(", ") || plainQuery;
+    }
     const [diceJobs, extraJobs] = await Promise.all([
-      loadDiceJobs(plainQuery, loc, area),
+      loadDiceJobs(diceQuery, loc, area),
       typeof window.loadExtraJobSources === "function" ? window.loadExtraJobSources(roleQueries, plainQuery, loc, progress, area) : [],
     ]);
     if (run !== searchRun) return false;

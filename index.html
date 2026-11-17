@@ -308,7 +308,7 @@
                 <option value="30">30%+ match</option>
                 <option value="50">50%+ match</option>
                 <option value="70">70%+ match</option></select
-              ><button type="button" class="chip-btn" id="hiddentoggle" onclick="toggleHiddenJobs()">Hidden jobs</button>
+              ><button type="button" class="chip-btn" id="relatedtoggle" onclick="toggleRelatedTitles()" aria-pressed="true" title="Also search and show related job titles (e.g. Analytics Engineer for Data Engineer)">Related titles: on</button><button type="button" class="chip-btn" id="hiddentoggle" onclick="toggleHiddenJobs()">Hidden jobs</button>
               <div class="filters-right">
                 <input id="resultsearch" type="search" placeholder="Filter results by title or company" oninput="applyJobFilters()" aria-label="Filter results by title or company" />
                 <select id="sortfilter" onchange="renderJobs()" aria-label="Sort">

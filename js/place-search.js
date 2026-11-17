@@ -51,7 +51,7 @@
     const next = { place: me ? "" : input.value.trim().slice(0, 80), radius: radius() },
       old = data.search || {};
     if (old.place === next.place && old.radius === next.radius) return;
-    data.search = next;
+    data.search = { ...old, ...next };
     // Saved directly (not through persist()), so the results on screen aren't redrawn mid-search.
     try {
       localStorage.setItem(KEY, JSON.stringify(data));

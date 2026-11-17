@@ -3,7 +3,8 @@
 // and published as small files split by title word. A search downloads only the file for the
 // least common word in each searched role, then keeps titles containing every word.
 const JOB_INDEX_URL = "https://looney-bin-jobs.pages.dev";
-const JOB_INDEX_MAX_PER_ROLE = 3000;
+const JOB_INDEX_MAX_PER_ROLE = 3000,
+  JOB_INDEX_MAX_PER_RELATED = 800;
 const ATS_NAMES = { Greenhouse: "Greenhouse", Lever: "Lever", Ashby: "Ashby", Workday: "Workday", iCIMS: "iCIMS", BambooHR: "BambooHR", Paylocity: "Paylocity" };
 const LEVEL_NAMES = { i: "Internship", e: "Entry level", m: "Mid level", s: "Senior", x: "Executive" };
 
@@ -69,7 +70,13 @@ async function loadJobIndex(roles, progress = () => {}, area = null) {
     jobIndexMeta ||= await (await fetch(`${JOB_INDEX_URL}/meta.json`, { signal: AbortSignal.timeout(20000) })).json();
     let words = jobIndexMeta.words || {},
       buckets = jobIndexMeta.buckets || 2048;
-    for (let role of roles.slice(0, 5)) {
+    // Searched roles first, then related titles (when "Related titles" is on), each with a smaller cap.
+    let searches = roles.slice(0, 5).map((r) => [r, JOB_INDEX_MAX_PER_ROLE]);
+    if (window.searchRelatedTitles !== false && typeof relatedTitles === "function") {
+      let typed = new Set(roles.map((r) => String(r.raw || r).toLowerCase()));
+      [...new Set(roles.slice(0, 3).flatMap((r) => relatedTitles(r, 4)))].filter((t) => !typed.has(t)).slice(0, 8).forEach((t) => searches.push([t, JOB_INDEX_MAX_PER_RELATED]));
+    }
+    for (let [role, cap] of searches) {
       let want = indexTitleWords(role.raw || role);
       if (!want.length) continue;
       // Download the file for the least common word (a word without its own file is rare).
@@ -80,7 +87,7 @@ async function loadJobIndex(roles, progress = () => {}, area = null) {
         return want.every((w) => have.includes(w)) && (!area || area.keepLocation(row[2]));
       });
       hits.sort((a, b) => (b[7] || 0) - (a[7] || 0));
-      out.push(...hits.slice(0, JOB_INDEX_MAX_PER_ROLE).map(indexJob));
+      out.push(...hits.slice(0, cap).map(indexJob));
     }
   } catch (e) {
     feedErrors.push(`Job index unavailable (${e.message}).`);
