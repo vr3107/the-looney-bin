@@ -7,10 +7,113 @@ function load() {
     return { profile: {}, jobs: [] };
   }
 }
+// Saving with more than one tab open: each tab remembers the saved copy it last saw. If another tab
+// has saved since, its changes are merged in first (item by item: whatever this tab didn't change
+// takes the other tab's version, deletions included), so an older tab never undoes newer work.
+let lastSavedText = localStorage.getItem(KEY);
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const isItemList = (v) => Array.isArray(v) && v.length > 0 && v.every((x) => x && typeof x === "object" && typeof x.id === "string");
+function mergeValue(base, theirs, mine) {
+  if (sameJson(mine, base)) return theirs;
+  if (sameJson(theirs, base)) return mine;
+  return mine; // both changed it: this tab's change wins
+}
+function mergeList(base = [], theirs = [], mine = []) {
+  const byId = (list) => new Map(list.map((x) => [x.id, x])),
+    b = byId(Array.isArray(base) ? base : []),
+    t = byId(theirs),
+    m = byId(mine),
+    out = [];
+  for (const item of mine) {
+    const id = item.id;
+    if (t.has(id)) out.push(mergeValue(b.get(id), t.get(id), item) === item ? item : t.get(id));
+    else if (!b.has(id) || !sameJson(item, b.get(id))) out.push(item); // added here, or changed here after they deleted it
+    // else: deleted in the other tab and unchanged here → stays deleted
+  }
+  for (const item of theirs) if (!m.has(item.id) && !b.has(item.id)) out.push(item); // added in the other tab
+  return out;
+}
+function mergeInto(base, theirs, mine) {
+  for (const k of new Set([...Object.keys(theirs), ...Object.keys(mine)])) {
+    const bv = base?.[k],
+      tv = theirs[k],
+      mv = mine[k];
+    if (!(k in theirs)) {
+      if (k in (base || {}) && sameJson(mv, bv)) delete mine[k]; // removed in the other tab
+      continue;
+    }
+    if (!(k in mine)) {
+      if (!(k in (base || {}))) mine[k] = tv; // added in the other tab
+      continue;
+    }
+    if ((isItemList(tv) || isItemList(mv)) && Array.isArray(tv) && Array.isArray(mv)) mine[k] = mergeList(bv, tv, mv), mv.splice(0, mv.length, ...mine[k]), (mine[k] = mv);
+    else if (tv && mv && typeof tv === "object" && typeof mv === "object" && !Array.isArray(tv) && !Array.isArray(mv)) mergeInto(bv && typeof bv === "object" ? bv : {}, tv, mv);
+    else mine[k] = mergeValue(bv, tv, mv);
+  }
+  return mine;
+}
+// Bring another tab's saved changes into this tab's copy (same object, so references stay valid).
+function takeOtherTabChanges(currentText) {
+  if (!currentText || currentText === lastSavedText) return false;
+  try {
+    mergeInto(lastSavedText ? JSON.parse(lastSavedText) : {}, JSON.parse(currentText), data);
+  } catch {
+    return false;
+  }
+  lastSavedText = currentText;
+  return true;
+}
 function persist() {
-  localStorage.setItem(KEY, JSON.stringify(data));
+  takeOtherTabChanges(localStorage.getItem(KEY));
+  const text = JSON.stringify(data);
+  localStorage.setItem(KEY, text);
+  lastSavedText = text;
   updateUI();
 }
+window.mergeTabData = mergeInto;
+// The same posting under different links ("?jk=1&from=serp" vs "?jk=1&tk=abc"): a key made of the site
+// and the posting's own ID, without tracking parameters. Used to spot postings already in the tracker.
+const POSTING_ID_PARAMS = /^(jk|vjk|jl|joblistingid|currentjobid|gh_jid|jobid|job_id|jobpostingid|postingid|pid|id|job|jid|req|reqid|requisitionid|ref_num|oid)$/i;
+function postingKey(url) {
+  let u;
+  try {
+    u = new URL(String(url || ""));
+  } catch {
+    return String(url || "").trim().toLowerCase();
+  }
+  const host = u.hostname.toLowerCase().replace(/^(www|m|uk|ca|in)\./, ""),
+    path = u.pathname.replace(/\/+$/, "").toLowerCase(),
+    q = (name) => [...u.searchParams].find(([k]) => k.toLowerCase() === name)?.[1];
+  if (/(^|\.)indeed\./.test(host) && (q("jk") || q("vjk"))) return `indeed:${(q("jk") || q("vjk")).toLowerCase()}`;
+  if (/(^|\.)linkedin\.com$/.test(host)) {
+    const id = (path.match(/\/jobs\/view\/(?:[^/]*-)?(\d+)/) || [])[1] || q("currentjobid");
+    if (id) return `linkedin:${id}`;
+  }
+  if (/(^|\.)glassdoor\./.test(host)) {
+    const id = q("jl") || q("joblistingid") || (path.match(/(\d{9,})/) || [])[1];
+    if (id) return `glassdoor:${String(id).toLowerCase()}`;
+  }
+  const kept = [...u.searchParams]
+    .filter(([k]) => POSTING_ID_PARAMS.test(k))
+    .map(([k, v]) => `${k.toLowerCase()}=${v}`)
+    .sort();
+  return `${host}${path}${kept.length ? "?" + kept.join("&") : ""}`;
+}
+window.postingKey = postingKey;
+// True when the tracker already has this posting (same link, or the same posting under another link).
+window.trackedPosting = function (url) {
+  if (!url) return null;
+  const key = postingKey(url);
+  return data.jobs.find((x) => x.url && (x.url === url || postingKey(x.url) === key)) || null;
+};
+// Another tab saved: show its changes here right away.
+window.addEventListener("storage", (e) => {
+  if (e.key !== KEY || !takeOtherTabChanges(e.newValue)) return;
+  updateUI();
+  // Redraw the open page, unless a window (job details, editor) is open over it.
+  const page = document.querySelector("[data-page].active")?.dataset.page;
+  if (page && !document.querySelector("#modalroot .modal, #modalroot > *")) navigate(page);
+});
 // Stricter percent-encoding: also encodes ' ( ) * ! so an encoded value can never
 // break out of the quoted argument of an inline click handler.
 const lbEncode = window.encodeURIComponent;

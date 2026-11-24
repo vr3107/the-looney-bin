@@ -37,8 +37,26 @@ export async function onRequestPost({ request, env, data }) {
     statements.push(db.prepare("DELETE FROM docs WHERE user_id = ? AND kind = ? AND id = ?").bind(userId, r.kind, r.id));
   }
   if (upserts.length) {
+    // Items after this save: today's count, plus upserts that are new, minus removals of stored items.
+    // (Updating an item that is already stored doesn't add to the count.)
     const { n } = await db.prepare("SELECT COUNT(*) AS n FROM docs WHERE user_id = ?").bind(userId).first();
-    if (n + upserts.length > MAX_ITEMS) return fail("storage_full", 413);
+    const stored = async (list) => {
+      let found = 0;
+      for (let i = 0; i < list.length; i += 40) {
+        const part = list.slice(i, i + 40);
+        const row = await db
+          .prepare(`SELECT COUNT(*) AS c FROM docs WHERE user_id = ? AND (${part.map(() => "(kind = ? AND id = ?)").join(" OR ")})`)
+          .bind(userId, ...part.flatMap((x) => [x.kind, x.id]))
+          .first();
+        found += row.c;
+      }
+      return found;
+    };
+    const unique = (list) => [...new Map(list.map((x) => [x.kind + ":" + x.id, x])).values()];
+    const ups = unique(upserts),
+      rms = unique(removes),
+      after = n + (ups.length - (await stored(ups))) - (rms.length ? await stored(rms) : 0);
+    if (after > MAX_ITEMS) return fail("storage_full", 413, { limit: MAX_ITEMS });
   }
   for (let i = 0; i < statements.length; i += 40) await db.batch(statements.slice(i, i + 40));
   const row = await db.prepare("UPDATE users SET rev = rev + 1 WHERE id = ? RETURNING rev").bind(userId).first();

@@ -178,7 +178,7 @@ function importedJob(j, site) {
 function showImportDialog(payload) {
   let site = siteName(payload.site),
     jobs = (Array.isArray(payload.jobs) ? payload.jobs : []).slice(0, 100).map((j) => importedJob(j, payload.site)).filter((j) => /^https?:/i.test(j.url) && j.title),
-    known = new Set(data.jobs.map((x) => x.url));
+    known = new Set(data.jobs.filter((x) => x.url).map((x) => postingKey(x.url)));
   document.getElementById("import-dialog")?.remove();
   document.body.insertAdjacentHTML(
     "beforeend",
@@ -187,7 +187,7 @@ function showImportDialog(payload) {
 <p class="help">${payload.pasted ? "From the search results you pasted." : `From the page you were viewing on ${esc(payload.site)}.`} Untick any you don’t want.${jobs.some((j) => !j.description || j.description.length < 300) ? " Jobs saved from a search-results page include the card’s details; open a posting and save it again to add its full description." : ""}</p>
 <div class="import-list">${jobs
       .map(
-        (j, i) => `<label class="import-row"><input type="checkbox" data-import="${i}" ${known.has(j.url) ? "disabled" : "checked"}><span><b>${esc(j.title)}</b><small>${esc([j.company, j.location, j.salary].filter(Boolean).join(" · "))}${known.has(j.url) ? " · already in your tracker" : ""}</small></span></label>`,
+        (j, i) => `<label class="import-row"><input type="checkbox" data-import="${i}" ${known.has(postingKey(j.url)) ? "disabled" : "checked"}><span><b>${esc(j.title)}</b><small>${esc([j.company, j.location, j.salary].filter(Boolean).join(" · "))}${known.has(postingKey(j.url)) ? " · already in your tracker" : ""}</small></span></label>`,
       )
       .join("")}</div>
 <div class="docx-ask-actions"><button class="btn btn-primary btn-sm" data-save>Save to tracker</button><button class="btn btn-sm" data-cancel>Cancel</button></div>
@@ -197,8 +197,9 @@ function showImportDialog(payload) {
   box.querySelector("[data-cancel]").onclick = () => box.remove();
   box.querySelector("[data-save]").onclick = () => {
     let picked = [...box.querySelectorAll("[data-import]:checked")].map((c) => jobs[Number(c.dataset.import)]);
+    // Skips postings already tracked (also under another link), and repeats within this list.
     for (let j of picked)
-      if (!data.jobs.some((x) => x.url === j.url))
+      if (!trackedPosting(j.url))
         data.jobs.push({ ...j, id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()), added: Date.now(), status: "Saved", resumeId: data.activeResumeId });
     persist();
     box.remove();

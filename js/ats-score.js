@@ -190,9 +190,16 @@ function atsBreakdown(job, resumeText) {
       format: fmt,
     },
     weights = { ...ATS_WEIGHTS };
-  // Spread the weight of components the job doesn't express.
-  if (skillPct === null) (weights.keywords += weights.skills), (weights.skills = 0);
-  if (kwPct === null) (weights.skills += weights.keywords), (weights.keywords = 0);
+  // Spread the weight of components the job doesn't express: skills and keywords cover for each
+  // other, and when the job lists neither, the score comes from the checks it does express.
+  if (skillPct === null && kwPct !== null) (weights.keywords += weights.skills), (weights.skills = 0);
+  else if (kwPct === null && skillPct !== null) (weights.skills += weights.keywords), (weights.keywords = 0);
+  else if (skillPct === null && kwPct === null) {
+    let freed = weights.skills + weights.keywords,
+      rest = 100 - freed;
+    weights.skills = weights.keywords = 0;
+    for (let k of ["title", "experience", "education", "format"]) weights[k] = (weights[k] * 100) / rest;
+  }
   let total = 0;
   for (let k of Object.keys(weights)) total += weights[k] * (parts[k].pct ?? 0);
   let score = Math.max(1, Math.min(99, Math.round(total)));

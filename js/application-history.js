@@ -1,7 +1,7 @@
 function ensureTrackedJob(job) {
   let saved = data.jobs.find(
-    (x) => x.id === job.id || (job.url && x.url === job.url),
-  );
+    (x) => x.id === job.id,
+  ) || (job.url && trackedPosting(job.url));
   if (saved) return saved;
   let copy = {
     ...job,
@@ -45,9 +45,9 @@ function resumeSnapshotHtml(before, after) {
     (before || "")
       .split(/\r?\n/)
       .map(
-        (x) =>
+        (x, i) =>
           '<span class="' +
-          (d.removed.includes(x) ? "diff-removed" : "diff-kept") +
+          (d.removedAt.has(i) ? "diff-removed" : "diff-kept") +
           '">' +
           (esc(x) || " ") +
           "</span>",
@@ -57,9 +57,9 @@ function resumeSnapshotHtml(before, after) {
     (after || "")
       .split(/\r?\n/)
       .map(
-        (x) =>
+        (x, i) =>
           '<span class="' +
-          (d.added.includes(x) ? "diff-added" : "diff-kept") +
+          (d.addedAt.has(i) ? "diff-added" : "diff-kept") +
           '">' +
           (esc(x) || " ") +
           "</span>",

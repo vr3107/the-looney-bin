@@ -161,7 +161,7 @@ window.toggleHideJob = function (id) {
 };
 window.saveLiveCard = function (id) {
   let j = (window.liveResults || []).find((x) => x.id === id);
-  if (j && data.jobs.some((s) => s.url && s.url === j.url)) {
+  if (j && trackedPosting(j.url)) {
     toast("This role is already in your tracker.");
     return;
   }

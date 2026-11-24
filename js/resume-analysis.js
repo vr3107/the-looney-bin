@@ -41,16 +41,31 @@ function naturalResumeInsertion(body, addition) {
 function composedResume(summary, body) {
   return naturalResumeInsertion(body, summary);
 }
+// Line comparison that counts repeats: a line appearing once more after editing is one added
+// line (the later copy), and one copy fewer is one removed line.
+// addedAt / removedAt: positions (line numbers) in the updated / previous text, for highlighting.
 function diffLines(before, after) {
   let a = (before || "").split(/\r?\n/),
     b = (after || "").split(/\r?\n/),
-    as = new Set(a.filter((x) => x.trim())),
-    bs = new Set(b.filter((x) => x.trim()));
-  return {
-    added: b.filter((x) => x.trim() && !as.has(x)),
-    removed: a.filter((x) => x.trim() && !bs.has(x)),
-    unchanged: b.filter((x) => x.trim() && as.has(x)),
-  };
+    count = (list) => list.reduce((m, x) => (x.trim() ? m.set(x, (m.get(x) || 0) + 1) : m), new Map()),
+    left = count(a),
+    right = count(b),
+    added = [],
+    removed = [],
+    unchanged = [],
+    addedAt = new Set(),
+    removedAt = new Set();
+  b.forEach((x, i) => {
+    if (!x.trim()) return;
+    if (left.get(x) > 0) left.set(x, left.get(x) - 1), unchanged.push(x);
+    else added.push(x), addedAt.add(i);
+  });
+  a.forEach((x, i) => {
+    if (!x.trim()) return;
+    if (right.get(x) > 0) right.set(x, right.get(x) - 1);
+    else removed.push(x), removedAt.add(i);
+  });
+  return { added, removed, unchanged, addedAt, removedAt };
 }
 function paintResumeDiff(before, after) {
   let d = diffLines(before, after),
@@ -60,9 +75,9 @@ function paintResumeDiff(before, after) {
     old.innerHTML = (before || "")
       .split(/\r?\n/)
       .map(
-        (x) =>
+        (x, i) =>
           '<span class="' +
-          (d.removed.includes(x) ? "diff-removed" : "diff-kept") +
+          (d.removedAt.has(i) ? "diff-removed" : "diff-kept") +
           '">' +
           (esc(x) || " ") +
           "</span>",
@@ -72,9 +87,9 @@ function paintResumeDiff(before, after) {
     fresh.innerHTML = (after || "")
       .split(/\r?\n/)
       .map(
-        (x) =>
+        (x, i) =>
           '<span class="' +
-          (d.added.includes(x) ? "diff-added" : "diff-kept") +
+          (d.addedAt.has(i) ? "diff-added" : "diff-kept") +
           '">' +
           (esc(x) || " ") +
           "</span>",

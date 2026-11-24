@@ -10,7 +10,19 @@
     pushing = null,
     timer = null,
     dirty = false,
-    offline = false;
+    offline = false,
+    // Items the account refused as too large: kept on this device only, not resent.
+    tooLarge = new Set(),
+    blocked = "";
+  // Saves the account refuses for a reason that won't change by retrying.
+  const PERMANENT = {
+    storage_full: "Not saved — your account is full (6,000 items). Delete old jobs or resume versions to save again.",
+    too_many_changes: "Not saved — too many changes at once. Reload the page to save in smaller steps.",
+    invalid_item: "Not saved — one item couldn’t be read by your account. Reload the page and try again.",
+  };
+  const ITEM_LIMIT = 700_000,
+    REMOVES_PER_SAVE = 1000,
+    UPSERTS_PER_SAVE = 400;
   const el = (id) => document.getElementById(id);
   function setState(text, cls) {
     let s = el("syncstate");
@@ -25,11 +37,23 @@
   function pending() {
     let docs = lbDocsFromData(data),
       hashes = lbHashes(docs),
-      upserts = docs.filter((d) => meta.hashes[d.kind + ":" + d.id] !== hashes[d.kind + ":" + d.id]),
+      skipped = 0,
+      upserts = docs.filter((d) => {
+        let key = d.kind + ":" + d.id;
+        if (meta.hashes[key] === hashes[key]) return false;
+        if (tooLarge.has(key + "|" + hashes[key])) return skipped++, false;
+        if (JSON.stringify(d.v).length > ITEM_LIMIT) {
+          tooLarge.add(key + "|" + hashes[key]);
+          toast("One item is too large to save to your account. It stays on this device.");
+          skipped++;
+          return false;
+        }
+        return true;
+      }),
       removes = Object.keys(meta.hashes)
         .filter((k) => !(k in hashes))
         .map((k) => ({ kind: k.slice(0, k.indexOf(":")), id: k.slice(k.indexOf(":") + 1) }));
-    return { hashes, upserts, removes };
+    return { hashes, upserts, removes, skipped };
   }
   async function push() {
     if (pushing) {
@@ -38,29 +62,48 @@
     }
     pushing = (async () => {
       try {
-        let { hashes, upserts, removes } = pending();
-        if (!upserts.length && !removes.length) return setState("✓ Saved to your account", "ok");
+        let { hashes, upserts, removes, skipped } = pending();
+        // Items too large for the account stay on this device: still "unsaved" for sign-out.
+        const done = (n) => {
+          offline = n > 0;
+          blocked = "";
+          push.toldPermanent = false;
+          setState(n ? "✓ Saved, except an item too large for your account (kept on this device)" : "✓ Saved to your account", n ? "warn" : "ok");
+        };
+        if (!upserts.length && !removes.length) return done(skipped);
         setState("Saving…");
-        // Send in batches of about 900 KB so large libraries don't hit request limits.
-        let batches = [],
-          cur = { upserts: [], removes, size: 0 };
+        // Send in batches the account accepts: removals first, up to 1,000 a save, then items in
+        // batches of about 900 KB / 400 items.
+        let batches = [];
+        for (let i = 0; i < removes.length; i += REMOVES_PER_SAVE) batches.push({ upserts: [], removes: removes.slice(i, i + REMOVES_PER_SAVE), size: 0 });
+        let cur = { upserts: [], removes: [], size: 0 };
         for (let u of upserts) {
           let size = JSON.stringify(u.v).length;
-          if (cur.upserts.length && (cur.size + size > 900_000 || cur.upserts.length >= 400)) {
+          if (cur.upserts.length && (cur.size + size > 900_000 || cur.upserts.length >= UPSERTS_PER_SAVE)) {
             batches.push(cur);
             cur = { upserts: [], removes: [], size: 0 };
           }
           cur.upserts.push(u);
           cur.size += size;
         }
-        batches.push(cur);
+        if (cur.upserts.length) batches.push(cur);
         let stale = false;
         for (let b of batches) {
           let r = await lbApi("/api/state", { method: "POST", body: { baseRev: meta.rev, upserts: b.upserts, removes: b.removes } });
           if (r.status === 401) return leave();
           if (!r.ok) {
-            if (r.data.error === "item_too_large") toast("One item is too large to save to your account. It stays on this device.");
-            throw new Error(r.data.error || "save_failed");
+            let code = r.data?.error || "save_failed";
+            if (code === "item_too_large" && r.data.kind && r.data.id) {
+              // Keep that item on this device and save everything else.
+              let key = r.data.kind + ":" + r.data.id;
+              tooLarge.add(key + "|" + hashes[key]);
+              toast("One item is too large to save to your account. It stays on this device.");
+              dirty = true;
+              break;
+            }
+            let err = new Error(code);
+            err.permanent = PERMANENT[code];
+            throw err;
           }
           stale = stale || r.data.stale;
           meta.rev = r.data.rev;
@@ -68,13 +111,24 @@
           for (let x of b.removes) delete meta.hashes[x.kind + ":" + x.id];
           Storage.prototype.setItem.call(localStorage, metaKey, JSON.stringify(meta));
         }
-        offline = false;
-        setState("✓ Saved to your account", "ok");
+        done(skipped);
         if (stale) offerLatest();
       } catch (e) {
+        clearTimeout(timer);
+        if (e.permanent) {
+          // Retrying the same save would fail the same way: explain, and try again only after the
+          // next change (e.g. once old items are deleted). Still unsaved, so sign-out warns.
+          offline = true;
+          blocked = e.permanent;
+          setState(e.permanent, "warn");
+          if (!push.toldPermanent) toast(e.permanent);
+          push.toldPermanent = true;
+          return;
+        }
+        push.toldPermanent = false;
+        blocked = "";
         offline = true;
         setState("Not saved yet — will retry", "warn");
-        clearTimeout(timer);
         timer = setTimeout(push, 15000);
       }
     })().finally(() => {
@@ -199,7 +253,7 @@
       persist();
       if (typeof fillProfile === "function") fillProfile();
     }
-    setState(offline ? "Not saved yet — will retry" : "✓ Saved to your account", offline ? "warn" : "ok");
+    setState(blocked || (offline ? "Not saved yet — will retry" : "✓ Saved to your account"), offline ? "warn" : "ok");
   }
   document.addEventListener("visibilitychange", async () => {
     if (document.visibilityState === "hidden") {
