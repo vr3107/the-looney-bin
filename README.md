@@ -18,6 +18,7 @@ Then open [http://localhost:8080](http://localhost:8080).
 - `styles.css` — application styles
 - `js/` — app behavior, job search, resume library, matching, tailoring, DOCX export, and application history
 - `data/` — reference data the app loads when needed: the company directory, and U.S. places and ZIP codes for location search
+- `fonts/` — Noto Sans and Noto Serif (SIL Open Font License, `fonts/OFL.txt`), used only for PDF downloads of resumes with letters the standard PDF fonts can't show (ő, ł, Ş, Greek, Cyrillic). Resumes in scripts these fonts don't cover (Chinese, Japanese, Arabic, …) are offered as .docx instead of a PDF with missing characters.
 - `scripts/` — builders for the daily job index and the places data
 - `functions/` — Cloudflare Pages Functions (accounts, Dice search, job boards that need a server, AI tailoring)
 

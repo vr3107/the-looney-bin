@@ -229,7 +229,7 @@ Return ONLY one JSON object, no Markdown:
 Return at most 60 edits, ordered by line number, and include an edit for the summary and for the experience and project bullets.`;
 }
 
-function coverLetterPrompt(tone, length) {
+function coverLetterPrompt(tone, length, roleChange = false) {
   const words = { short: "180–230", standard: "260–330", detailed: "350–420" }[length] || "260–330";
   const voice = {
     professional: "polished and professional",
@@ -247,11 +247,7 @@ Write a ${voice} cover letter of ${words} words for this specific job using only
 - Plain text with paragraphs separated by a blank line. Start with "Dear <hiring manager name or Hiring Team>," and end with "Sincerely," and the candidate's name on the next line.
 
 ${roleChange ? `
-CHANGING FIELDS: this job is in a different field from the candidate's current resume (roleChange is true). Re-target the whole resume to the job, using only what is true:
-- Summary: present the candidate for the target role. Lead with the job's core title as the role they are targeting (e.g. "IT infrastructure professional moving into <job title> work, bringing ..."), then the transferable strengths and confirmed skills that matter for this job. Never claim years of experience in the new field.
-- Skills section: rebuild it for the target job. Rename category labels to categories this job uses, put the job's skills the candidate has (from the resume, confirmed keywords, or facts) first, and remove skills this job has no use for (for example, drop cabling, subnetting, or VLAN items for a data engineering job). Keep categories with transferable value (e.g. change or process management, project and vendor management, collaboration, documentation), renamed if useful; delete only a line whose skills are all irrelevant to this job, and keep at least three skills lines.
-- Experience and project bullets: reframe each one around the part of the work this job values: data, automation, scripting, documentation and record accuracy, process and change management, troubleshooting and root-cause analysis, SLAs, stakeholder communication, vendor coordination, training. Describe the same real work: never change WHAT the work was done on (if a bullet is about network equipment, tickets, or vendors, don't turn it into data pipelines, warehouses, ETL, or cloud workloads). Change only how it is described: put the transferable part first and use the job's vocabulary for that part. Shorten or delete bullets with nothing transferable, but keep at least two bullets for every role.
-- Never change job titles, employers, or dates, and never describe work the candidate didn't do.
+CHANGING FIELDS: this job is in a different field from the candidate's background (roleChange is true). Present the candidate as moving into this kind of role: name the transferable strengths and real experience that matter for this job, say plainly that this is a move into the field, and never claim years of experience in the new field.
 ` : ""}
 Return ONLY one JSON object, no Markdown: {"letter":"the full letter text","highlights":["short phrases naming the resume evidence you used"]}`;
 }
@@ -318,7 +314,7 @@ async function handleCoverLetter(body, env) {
   if (resume.length > MAX_RESUME_CHARS || job.description.length > MAX_JOB_CHARS || notes.length > MAX_CONTEXT_CHARS)
     return json({ error: "input_too_long" }, 413);
   const user = JSON.stringify({ job, resume, candidateName: name, hiringManager: manager, candidateFacts: notes });
-  const { parsed, model, attempts } = await runJson(env, coverLetterPrompt(tone, length), user, 2500, (p) => typeof p?.letter === "string" && p.letter.trim().length > 40);
+  const { parsed, model, attempts } = await runJson(env, coverLetterPrompt(tone, length, body.roleChange === true), user, 2500, (p) => typeof p?.letter === "string" && p.letter.trim().length > 40);
   const letter = String(parsed?.letter || "").trim();
   if (!letter) return json({ error: "ai_generation_failed" }, 502);
   return json({ letter: letter.slice(0, 6000), highlights: Array.isArray(parsed?.highlights) ? parsed.highlights.slice(0, 8).map(String) : [], model, attempts });

@@ -27,6 +27,27 @@ function loadPdfLib() {
     document.head.appendChild(s);
   });
 }
+// For resumes with letters the built-in PDF fonts can't show (ő, ł, Ş, Greek, Cyrillic, …):
+// the font library, and Noto Sans / Noto Serif from this site (fonts/, SIL Open Font License).
+function loadFontkit() {
+  return new Promise((resolve, reject) => {
+    if (window.fontkit) return resolve(window.fontkit);
+    let s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js";
+    s.onload = () => (window.fontkit ? resolve(window.fontkit) : reject(new Error("Font support did not load")));
+    s.onerror = () => reject(new Error("Could not load font support for this resume’s characters. Check your connection and try again."));
+    document.head.appendChild(s);
+  });
+}
+const unicodeFontCache = {};
+async function unicodeFontBytes(name) {
+  if (!unicodeFontCache[name])
+    unicodeFontCache[name] = fetch(`fonts/${name}.ttf`).then((r) => {
+      if (!r.ok) throw new Error("Could not load the font for this resume’s characters.");
+      return r.arrayBuffer();
+    });
+  return unicodeFontCache[name];
+}
 // Rebuild one page's text from positioned text items, keeping indentation,
 // gaps between columns and blank lines between blocks.
 function pdfPageLayout(items) {
@@ -180,6 +201,36 @@ async function makeResumePdf(text, style = {}) {
     page = doc.addPage([W, H]),
     y = H - MT;
   const CHARS = { "●": "•", "▪": "•", "◦": "•", "‑": "-", "‐": "-", "−": "-", "→": "->", "≥": ">=", "≤": "<=", "✓": "-", "\t": " " };
+  // Letters the built-in fonts can't show switch the whole PDF to Noto Sans / Noto Serif (which
+  // cover Latin, Greek and Cyrillic). Anything those can't show either (Chinese, Japanese, Arabic,
+  // …) stops the download with an explanation instead of silently leaving characters out.
+  const encodable = (f, ch) => {
+    try {
+      f.encodeText(ch);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  let used = [...new Set([...String(text).replace(/\r/g, "")].map((ch) => CHARS[ch] ?? ch))].filter((ch) => ch !== "\n" && ch.trim()),
+    missing = used.filter((ch) => !encodable(font, ch) || !encodable(bold, ch));
+  if (missing.length) {
+    let fk = await loadFontkit(),
+      family = serif ? "NotoSerif" : "NotoSans",
+      [regBytes, boldBytes] = await Promise.all([unicodeFontBytes(`${family}-Regular`), unicodeFontBytes(`${family}-Bold`)]),
+      check = fk.create(new Uint8Array(regBytes)),
+      unsupported = missing.filter((ch) => !check.hasGlyphForCodePoint(ch.codePointAt(0)));
+    if (unsupported.length) {
+      let err = new Error(
+        `This resume has characters a PDF made here can’t show (${unsupported.slice(0, 6).join(" ")}${unsupported.length > 6 ? " …" : ""}), so no PDF was saved. Download the .docx instead — it keeps every character, and Word can save it as a PDF.`,
+      );
+      err.unsupported = unsupported;
+      throw err;
+    }
+    doc.registerFontkit(fk);
+    font = await doc.embedFont(regBytes, { subset: true });
+    bold = await doc.embedFont(boldBytes, { subset: true });
+  }
   let safe = (f, str) =>
     [...String(str)]
       .map((ch) => {

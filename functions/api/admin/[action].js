@@ -8,12 +8,26 @@ function newCode() {
 }
 const owner = (data) => data.user?.role === "owner";
 
-export async function onRequestGet({ env, data, params }) {
+// GET /api/admin/overview?q=&offset= → one page of 100 accounts (optionally matching q by name or
+// email), the total, and where the next page starts; plus invites and the sign-up setting.
+const PAGE = 100;
+export async function onRequestGet({ request, env, data, params }) {
   if (!owner(data)) return fail("owner_only", 403);
   if (params.action !== "overview") return fail("not_found", 404);
-  const db = env.DB,
-    [users, invites] = await db.batch([db.prepare("SELECT id, name, email, role, disabled, created_at, last_login FROM users ORDER BY created_at LIMIT 500"), db.prepare("SELECT substr(code_hash, 1, 16) AS id, label, max_uses, uses, created_at, expires_at FROM invites ORDER BY created_at DESC LIMIT 200")]);
-  return json({ signupMode: await getSetting(db, "signup_mode", "invite"), users: users.results, invites: invites.results });
+  const url = new URL(request.url),
+    q = String(url.searchParams.get("q") || "").trim().toLowerCase().slice(0, 100),
+    offset = Math.max(0, Math.min(1_000_000, Math.floor(Number(url.searchParams.get("offset")) || 0))),
+    like = "%" + q.replace(/[\\%_]/g, (c) => "\\" + c) + "%",
+    where = q ? "WHERE lower(name) LIKE ?1 ESCAPE '\\' OR lower(email) LIKE ?1 ESCAPE '\\'" : "",
+    db = env.DB,
+    bind = (stmt, ...rest) => (q ? stmt.bind(like, ...rest) : stmt.bind(...rest));
+  const [users, count, invites] = await db.batch([
+    bind(db.prepare(`SELECT id, name, email, role, disabled, created_at, last_login FROM users ${where} ORDER BY created_at, id LIMIT ${q ? "?2 OFFSET ?3" : "?1 OFFSET ?2"}`), PAGE + 1, offset),
+    bind(db.prepare(`SELECT COUNT(*) AS n FROM users ${where}`)),
+    db.prepare("SELECT substr(code_hash, 1, 16) AS id, label, max_uses, uses, created_at, expires_at FROM invites ORDER BY created_at DESC LIMIT 200"),
+  ]);
+  const more = users.results.length > PAGE;
+  return json({ signupMode: await getSetting(db, "signup_mode", "invite"), users: users.results.slice(0, PAGE), total: count.results[0].n, nextOffset: more ? offset + PAGE : null, query: q, invites: invites.results });
 }
 export async function onRequestPost({ request, env, data, params }) {
   if (!owner(data)) return fail("owner_only", 403);

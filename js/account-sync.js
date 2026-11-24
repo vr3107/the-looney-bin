@@ -318,6 +318,9 @@
   };
   const msg = (r) => r.data.message || ERR[r.data.error] || "Something went wrong. Please try again.";
   const when = (t) => (t ? new Date(t * 1000).toLocaleDateString() : "—");
+  function personRow(u) {
+    return `<div data-person="${esc(u.id)}"><span><b>${esc(u.name)}</b> · ${esc(u.email)}${u.role === "owner" ? ' · <i class="lb-badge">Admin</i>' : ""}${u.disabled ? ' · <i class="lb-badge off">Suspended</i>' : ""}<br><span class="help">joined ${when(u.created_at)} · last sign-in ${when(u.last_login)}</span></span>${u.role === "owner" ? "" : `<button class="btn btn-sm" data-suspend="${esc(u.id)}" data-on="${u.disabled ? 0 : 1}">${u.disabled ? "Restore access" : "Suspend"}</button>`}</div>`;
+  }
   async function openSettings(tab) {
     let admin = user.role === "owner" ? (await lbApi("/api/admin/overview")).data : null;
     el("modalroot").innerHTML = `<div class="modalback" id="lb-settings-back"><div class="modal lb-settings"><div class="modalhead"><div><div class="eyebrow">ACCOUNT</div><h2>${tab === "invites" ? "People and invites" : "Account settings"}</h2><div class="sub">${esc(user.email)}</div></div><button class="x" id="lb-x" aria-label="Close">×</button></div>
@@ -326,7 +329,7 @@ ${
     ? `<div class="lb-sec"><h3>Who can create an account</h3><div class="lb-row"><select id="lb-mode"><option value="invite">Only people with an invite code</option><option value="open">Anyone (public sign-up)</option><option value="closed">No one (sign-up closed)</option></select><button class="btn btn-sm" id="lb-mode-save">Save</button></div></div>
 <div class="lb-sec"><h3>Create an invite</h3><div class="lb-row"><input id="lb-inv-label" placeholder="Who is it for? (optional)" maxlength="80"><select id="lb-inv-uses"><option value="1">1 person</option><option value="5">5 people</option><option value="20">20 people</option></select><button class="btn btn-sm btn-primary" id="lb-inv-make">Create invite</button></div><div id="lb-inv-new"></div>
 <div class="lb-list">${admin.invites.length ? admin.invites.map((i) => `<div><span><b>${esc(i.label || "Invite")}</b> · used ${i.uses} of ${i.max_uses} · expires ${when(i.expires_at)}</span><button class="btn btn-sm" data-revoke="${esc(i.id)}">Revoke</button></div>`).join("") : '<p class="help">No invites yet.</p>'}</div></div>
-<div class="lb-sec"><h3>People with accounts · ${admin.users.length}</h3><div class="lb-list">${admin.users.map((u) => `<div><span><b>${esc(u.name)}</b> · ${esc(u.email)}${u.role === "owner" ? ' · <i class="lb-badge">Admin</i>' : ""}${u.disabled ? ' · <i class="lb-badge off">Suspended</i>' : ""}<br><span class="help">joined ${when(u.created_at)} · last sign-in ${when(u.last_login)}</span></span>${u.role === "owner" ? "" : `<button class="btn btn-sm" data-suspend="${esc(u.id)}" data-on="${u.disabled ? 0 : 1}">${u.disabled ? "Restore access" : "Suspend"}</button>`}</div>`).join("")}</div><p class="help">As admin you manage who has access. You can’t see other people’s resumes, jobs or files.</p></div>`
+<div class="lb-sec"><h3>People with accounts · <span id="lb-people-total">${admin.total ?? admin.users.length}</span></h3><div class="lb-row"><input id="lb-people-q" type="search" placeholder="Find by name or email" maxlength="100" aria-label="Find people by name or email"></div><div class="lb-list" id="lb-people">${admin.users.map(personRow).join("")}</div><div class="lb-row"><button class="btn btn-sm" id="lb-people-more"${admin.nextOffset == null ? " hidden" : ""}>Show more</button><span class="help" id="lb-people-shown"></span></div><p class="help">As admin you manage who has access. You can’t see other people’s resumes, jobs or files.</p></div>`
     : `<div class="lb-sec"><h3>Your name</h3><div class="lb-row"><input id="lb-name" value="${esc(user.name)}" maxlength="80" autocomplete="name"><button class="btn btn-sm" id="lb-name-save">Save</button></div></div>
 <div class="lb-sec"><h3>${user.hasPassword ? "Change password" : "Set a password"}</h3>${user.hasPassword ? '<input id="lb-pw-cur" type="password" placeholder="Current password" autocomplete="current-password">' : ""}<input id="lb-pw-new" type="password" placeholder="New password (at least 10 characters)" autocomplete="new-password"><div class="lb-row"><button class="btn btn-sm" id="lb-pw-save">Update password</button><span class="help">Other devices will be signed out.</span></div></div>
 <div class="lb-sec"><h3>Sign-in activity</h3><div id="lb-activity" class="lb-list lb-activity"><p class="help">Loading…</p></div><div class="lb-row"><button class="btn btn-sm" id="lb-others">Sign out all other devices</button><span class="help" id="lb-devices"></span></div></div>
@@ -365,14 +368,46 @@ ${
           else status(msg(r), true);
         }),
     );
-    document.querySelectorAll("[data-suspend]").forEach(
-      (b) =>
-        (b.onclick = async () => {
-          let r = await lbApi("/api/admin/suspend", { method: "POST", body: { id: b.dataset.suspend, suspended: b.dataset.on === "1" } });
-          if (r.ok) openSettings("invites");
-          else status(msg(r), true);
-        }),
-    );
+    // People: pages of 100, search by name or email, suspend/restore in place.
+    if (el("lb-people")) {
+      let people = [...admin.users],
+        next = admin.nextOffset,
+        query = "",
+        searchTimer = null;
+      const shown = () => (el("lb-people-shown").textContent = `Showing ${people.length} of ${el("lb-people-total").textContent}`);
+      const load = async (reset) => {
+        let r = await lbApi(`/api/admin/overview?q=${encodeURIComponent(query)}&offset=${reset ? 0 : next}`);
+        if (!r.ok) return status(msg(r), true);
+        people = reset ? r.data.users : [...people, ...r.data.users];
+        next = r.data.nextOffset;
+        el("lb-people").innerHTML = people.length ? people.map(personRow).join("") : '<p class="help">No one matches.</p>';
+        el("lb-people-total").textContent = r.data.total;
+        el("lb-people-more").hidden = next == null;
+        shown();
+      };
+      shown();
+      el("lb-people-more").onclick = () => load(false);
+      el("lb-people-q").oninput = (e) => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+          query = e.target.value.trim();
+          load(true);
+        }, 300);
+      };
+      el("lb-people").onclick = async (e) => {
+        let b = e.target.closest("[data-suspend]");
+        if (!b) return;
+        let suspend = b.dataset.on === "1",
+          r = await lbApi("/api/admin/suspend", { method: "POST", body: { id: b.dataset.suspend, suspended: suspend } });
+        if (!r.ok) return status(msg(r), true);
+        let u = people.find((p) => p.id === b.dataset.suspend);
+        if (u) {
+          u.disabled = suspend ? 1 : 0;
+          b.closest("[data-person]").outerHTML = personRow(u);
+        }
+        status(suspend ? "Access suspended." : "Access restored.");
+      };
+    }
     async function loadActivity() {
       if (!el("lb-activity")) return;
       let r = await lbApi("/api/auth/security");
