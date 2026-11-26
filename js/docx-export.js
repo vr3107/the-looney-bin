@@ -152,7 +152,8 @@ function resumeHeadingOf(t) {
 function resumeTitleParts(line, inRoles) {
   let t = String(line).trim();
   if (RESUME_BULLET_RE.test(line)) return null;
-  if (line.includes("\t")) {
+  // Only a tab between columns splits a title line; Word text often starts every line with a tab.
+  if (t.includes("\t")) {
     let [left, ...rest] = t.split("\t");
     return { left: left.trim(), right: rest.join(" ").trim() };
   }
@@ -164,6 +165,12 @@ function resumeTitleParts(line, inRoles) {
   if (date && inRoles && date.index > 0) return { left: t.slice(0, date.index).replace(/[\s,|–—-]+$/, ""), right: date[0].trim() };
   return null;
 }
+// "Remote/USA", "Hyderabad, India", "Chandler, AZ": a location line, set in regular weight.
+function resumeIsPlace(t) {
+  let s = String(t || "").trim();
+  return s.split(/\s+/).length <= 4 && !s.includes("|") && /^(?:remote|hybrid|on-?site)\b|\b(?:remote|usa|u\.s\.a?|united states|india|uk|canada)\b|^[A-Z][a-z]+(?: [A-Z][a-z]+)?,\s*[A-Z][A-Za-z]+$/i.test(s);
+}
+window.resumeIsPlace = resumeIsPlace;
 function resumeLayout(text) {
   let lines = String(text || "").replace(/\r/g, "").split("\n"),
     items = [],
@@ -192,13 +199,20 @@ function resumeLayout(text) {
       label = !bullet && body.match(RESUME_LABEL_RE);
     if (title) {
       afterTitle = true;
-      return items.push({ kind: "title", left: title.left, right: title.right });
+      let place = resumeIsPlace(title.left),
+        prevTitle = [...items].reverse().find((x) => x.kind !== "blank");
+      // "Remote/USA   Jul 2026 – Present" under a title that already shows those dates: show the dates once.
+      let right = place && prevTitle?.kind === "title" && prevTitle.right === title.right ? "" : title.right;
+      return items.push({ kind: "title", left: title.left, right, place });
     }
-    if (afterTitle && !bullet && !(useMarkers && label)) {
+    // The short line under a job title (company, location); a full sentence there is a bullet.
+    if (afterTitle && !bullet && !(useMarkers && label) && body.length <= 80 && !/[.;!]$/.test(body) && (body.split(/\s+/).length <= 6 || /[|,]/.test(body))) {
       afterTitle = false;
       return items.push({ kind: "sub", text: body });
     }
     afterTitle = false;
+    // "Environment: Python, …" / "Tools: …" under a role is a label line, not a bullet.
+    if (label && label[1].length <= 32 && label[1].split(/\s+/).length <= 4) return items.push({ kind: "label", label: label[1], text: label[2] });
     // Word resumes keep bullets as list formatting, so inside roles plain lines are bullets.
     if (bullet || (!useMarkers && inRoles && body.length > 25)) return items.push({ kind: "bullet", text: body });
     if (label) return items.push({ kind: "label", label: label[1], text: label[2] });
@@ -278,7 +292,7 @@ function resumeDocxBody(text) {
         case "heading":
           return docxPara(docxRun(it.text, { bold: true, size: 23 }), '<w:keepNext/><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="808080"/></w:pBdr>' + spacing(160, 80));
         case "title":
-          return docxPara(docxRun(it.left, { bold: true }) + docxRun("\t" + it.right, { bold: true }), RIGHT_TAB + "<w:keepNext/>" + spacing(100, 0));
+          return docxPara(docxRun(it.left, { bold: !it.place }) + docxRun("\t" + it.right), RIGHT_TAB + "<w:keepNext/>" + spacing(it.place ? 0 : 100, 0));
         case "sub":
           return docxPara(docxRun(it.text), "<w:keepNext/>" + spacing(0, 40));
         case "bullet":

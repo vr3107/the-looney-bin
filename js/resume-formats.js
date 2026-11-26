@@ -341,10 +341,10 @@ async function makeResumePdf(text, style = {}) {
       }
       case "title": {
         room(lead * 3);
-        y -= lead * 0.35;
+        if (!it.place) y -= lead * 0.35;
         let right = wrapRuns([{ text: it.right, font }], (W - ML - MR) * 0.45, size)[0] || [],
           rightW = right.reduce((a, p) => a + p.w, 0),
-          left = wrapRuns([{ text: it.left, font: bold }], W - ML - MR - rightW - 12, size);
+          left = wrapRuns([{ text: it.left, font: it.place ? font : bold }], W - ML - MR - rightW - 12, size);
         left.forEach((parts, k) => {
           y -= lead;
           drawLine(parts, ML, size);

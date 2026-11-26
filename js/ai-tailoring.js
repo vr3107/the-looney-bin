@@ -641,6 +641,8 @@ function validateAiEdits(edits, lines, opts) {
       let toolLine = TOOL_LINE_LABEL.test(orig),
         listLine = op === "replace" && (toolLine || (section === "skills" && orig.includes(":")));
       if (op === "replace" && (section === "experience" || section === "projects") && !toolLine && !rewriteKeepsWork(orig, text)) unknown.push("__different_work__");
+      // A new bullet describes work the original resume doesn't list: the candidate confirms it.
+      if (op === "insert_after" && (section === "experience" || section === "projects")) unknown.push("__new_bullet__");
       if (listLine && !roleChange) {
         let gone = droppedListItems(orig, text);
         if (gone.length) unknown.push("__drops__" + JSON.stringify({ gone, of: listItems(orig).length, skills: section === "skills" }));
@@ -700,6 +702,7 @@ function validateAiEdits(edits, lines, opts) {
         after: after.join("\n"),
         reason:
           (en.unknown.includes("__too_long__") ? "⚠ Longer than the original PDF line — shorten it in the editor so it fits at the same size. " : "") +
+          (en.unknown.includes("__new_bullet__") ? "⚠ New bullet: apply it only if you actually did this work. " : "") +
           (en.unknown.includes("__different_work__") ? "⚠ Verify before applying: this rewrite describes different work than your original bullet. " : "") +
           (en.unknown.filter((u) => u.startsWith("__drops__")).map((u) => `⚠ Verify before applying: this drops skills you listed (${u.slice(9)}). `)[0] || "") +
           (en.unknown.filter((u) => !u.startsWith("__")).length ? `⚠ Verify before applying: mentions ${[...new Set(en.unknown.filter((u) => !u.startsWith("__")))].join(", ")}, which isn’t in your resume. ` : "") +
