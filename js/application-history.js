@@ -261,8 +261,11 @@ window.saveTailoredResume = function (jobId) {
     previousText = source?.text || "",
     text = composedResume(summary, body),
     role = job.title || "Target role",
+    // Saving again for the same job and base resume updates that job's tailored version
+    // (every save is still kept in the job's resume history) instead of adding a copy.
+    existing = data.resumes.find((x) => x.jobId === job.id && x.id === job.tailoredResumeId && (x.baseResumeId || null) === (base?.id || null)),
     r = {
-      id: resumeId(),
+      id: existing ? existing.id : resumeId(),
       name: role + " — tailored",
       text: text,
       targetRoles: role,
@@ -274,7 +277,11 @@ window.saveTailoredResume = function (jobId) {
       confirmedKeywords: [...(window.confirmedResumeKeywords || [])],
       jobId: job.id,
     };
-  data.resumes.push(r);
+  if (existing) {
+    previousText = existing.text || previousText;
+    Object.assign(existing, r, { createdAt: existing.createdAt || r.createdAt, updatedAt: Date.now(), name: existing.name || r.name, basedOn: r.basedOn === existing.id ? existing.basedOn : r.basedOn });
+    r = existing;
+  } else data.resumes.push(r);
   let changes = compareSnapshot(previousText, text);
   job.resumeHistory = job.resumeHistory || [];
   job.resumeHistory.push({

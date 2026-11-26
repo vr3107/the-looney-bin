@@ -46,7 +46,7 @@ function tsTips(b) {
   if (p.keywords.pct !== null && p.keywords.pct < 0.8 && p.keywords.missing.length) tips.push(`Job keywords to work in where they’re true for you: ${p.keywords.missing.slice(0, 6).map((w) => `<b>${esc(w)}</b>`).join(", ")}.`);
   if (p.experience.need && p.experience.pct < 1) tips.push(`The job asks for ${p.experience.need}+ years; your resume shows about ${p.experience.have}. Make sure every role has its date range.`);
   if (p.education.pct < 1) tips.push("The job lists a degree requirement your resume doesn’t clearly show — check your Education section.");
-  if (p.format.missing.length) tips.push(`ATS format: add ${p.format.missing.map(esc).join(", ")}.`);
+  if (p.format.missing.length) tips.push(`ATS format: needs ${p.format.missing.map(esc).join(", ")}.`);
   return tips;
 }
 function tsRefresh() {

@@ -34,9 +34,9 @@ function applySuggestionsToLines(lines, suggestions) {
 window.applySuggestionsToLines = applySuggestionsToLines;
 // The job title without seniority or extras: "Senior Machine Learning Engineer (LLM) - Remote" → "Machine Learning Engineer".
 function coreJobTitle(title) {
-  let t = String(title || "")
+  let t = (typeof atsCleanTitle === "function" ? atsCleanTitle(title) : String(title || ""))
     .replace(/\([^)]*\)|\[[^\]]*\]/g, " ")
-    .split(/\s[-–—|]\s|,/)[0]
+    .split(/\s*[-–—|/]\s+|\s+[-–—|/]\s*|,/)[0]
     .replace(/\b(senior|sr\.?|junior|jr\.?|lead|staff|principal|head of|associate|entry[- ]level|mid[- ]level|intern|remote|hybrid|contract|i{1,3}|iv|level \d)\b\.?/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -212,6 +212,25 @@ function isRoleChange(job, resumeText, b) {
   return (b.parts.skills.pct ?? 1) < 0.5 || (titleHit < 0.5 && (b.parts.skills.pct ?? 1) < 0.75);
 }
 window.isRoleChange = isRoleChange;
+// Line ranges for tailoring a long resume in parts: split near the middle at a role
+// heading (a dated, non-bullet line) so each role's bullets stay in one request.
+function tailorRanges(lines) {
+  let filled = lines.filter((l) => String(l).trim()).length;
+  if (filled < 45) return [];
+  let mid = Math.floor(lines.length / 2),
+    isRole = (i) => !bulletPrefix(String(lines[i]).trim()) && /\b(19|20)\d{2}\b|\bpresent\b/i.test(lines[i]) && String(lines[i]).trim().length < 140,
+    split = -1;
+  for (let d = 0; d < lines.length / 4 && split < 0; d++) {
+    if (mid - d > 5 && isRole(mid - d)) split = mid - d;
+    else if (mid + d < lines.length - 5 && isRole(mid + d)) split = mid + d;
+  }
+  if (split < 0) split = mid;
+  return [
+    { from: 1, to: split },
+    { from: split + 1, to: lines.length },
+  ];
+}
+window.tailorRanges = tailorRanges;
 // Run the AI rewrite and return checked suggestions (no DOM work).
 window.aiTailorRun = async function (job, original, opts) {
   let lines = original.split("\n"),
@@ -221,10 +240,7 @@ window.aiTailorRun = async function (job, original, opts) {
     targetRole = String(job.targetRoles || window.tailorRoleForJob || "").slice(0, 200),
     riskySkills = (b?.parts.skills.missing || []).filter((t) => !confirmed.includes(t)),
     roleChange = isRoleChange(job, original, b);
-  const response = await fetch("/api/tailor", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const payload = {
       mode: "tailor",
       consent: true,
       lines,
@@ -243,22 +259,40 @@ window.aiTailorRun = async function (job, original, opts) {
       intensity,
       format,
       roleChange,
-    }),
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    let err = new Error(
-      {
-        ai_not_configured: "AI isn’t connected yet (add a Workers AI binding named AI to the Cloudflare Pages project).",
-        rate_limited: "Too many AI requests in the last minute. Wait a moment and try again.",
-        ai_quota_exceeded: "Today’s AI allowance is used up on every connected provider. Try again later (Cloudflare resets at 00:00 UTC).",
-        ai_busy: "The AI providers are busy (per-minute limit). Wait a minute and press Tailor again.",
-        input_too_long: "This resume or job description is too long for one request.",
-        request_too_large: "This request is too large. Shorten the extra facts and try again.",
-      }[result.error] || "AI tailoring couldn’t run right now.",
-    );
-    err.code = result.error || "failed";
-    throw err;
+    };
+  const call = async (editRange) => {
+    const response = await fetch("/api/tailor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(editRange ? { ...payload, editRange } : payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      let err = new Error(
+        {
+          ai_not_configured: "AI isn’t connected yet (add a Workers AI binding named AI to the Cloudflare Pages project).",
+          rate_limited: "Too many AI requests in the last minute. Wait a moment and try again.",
+          ai_quota_exceeded: "Today’s AI allowance is used up on every connected provider. Try again later (Cloudflare resets at 00:00 UTC).",
+          ai_busy: "The AI providers are busy (per-minute limit). Wait a minute and press Tailor again.",
+          input_too_long: "This resume or job description is too long for one request.",
+          request_too_large: "This request is too large. Shorten the extra facts and try again.",
+        }[result.error] || "AI tailoring couldn’t run right now.",
+      );
+      err.code = result.error || "failed";
+      throw err;
+    }
+    return result;
+  };
+  // A long resume is tailored in two halves at once, so every bullet gets attention
+  // (one response can only hold so many edits). If one half fails, the other still counts.
+  let ranges = tailorRanges(lines),
+    result;
+  if (ranges.length < 2) result = await call(null);
+  else {
+    let parts = await Promise.allSettled(ranges.map((r) => call(r)));
+    let ok = parts.filter((p) => p.status === "fulfilled").map((p) => p.value);
+    if (!ok.length) throw parts[0].reason;
+    result = { overview: ok[0].overview, edits: ok.flatMap((r) => r.edits || []), partial: ok.length < parts.length };
   }
   let { suggestions, rejected } = validateAiEdits(result.edits, lines, { notes, confirmed, format, sections, jobTitle: job.title || "", jobText: `${job.title || ""}\n${description}`, targetRole, riskySkills, roleChange });
   window.tailorRoleChange = roleChange;
@@ -400,19 +434,32 @@ function isProtectedLine(line, section) {
 // allowed — mirroring the job's wording is the point of tailoring. Tool/product-style names that only the
 // job mentions (AWS, A/B, PySpark, Node.js) still need the candidate's confirmation.
 function unsupportedTerms(text, allowedLower, jobLower = "") {
-  let words = String(text).replace(/^\s*(?:[•●▪*-]|\d+[.)])\s+/, "").split(/\s+/),
+  let words = String(text)
+      .replace(/[‐-―−]/g, "-")
+      .replace(/^\s*(?:[•●▪*-]|\d+[.)])\s+/, "")
+      .replace(/\//g, " / ")
+      .split(/\s+/),
     bad = [];
+  let isNamed = (w) => /[A-Z].*[A-Z0-9+#]|[a-z][A-Z]|^[A-Z][a-z]+$/.test(w) && !/^(I|A|An|The|And|For|With|In|On|At|To|Of)$/.test(w);
   words.forEach((w, i) => {
     let clean = w.replace(/^[("'[]+|[)"'\].,;:!?]+$/g, "");
     // Skip the first word and any word that starts a new sentence.
-    if (!clean || i === 0 || /[.!?:;]$/.test(words[i - 1] || "")) return;
-    let named = /[A-Z].*[A-Z0-9+#]|[a-z][A-Z]|^[A-Z][a-z]+$/.test(clean) && !/^(I|A|An|The|And|For|With|In|On|At|To|Of)$/.test(clean);
-    if (!named || allowedLower.includes(clean.toLowerCase())) return;
+    if (!clean || clean === "/" || i === 0 || /[.!?:;]$/.test(words[i - 1] || "")) return;
+    if (/^\d[\d.,%+]*$/.test(clean)) return; // numbers are checked separately
+    if (!isNamed(clean) || allowedLower.includes(clean.toLowerCase())) return;
+    // Plain capitalized verbs and words ("Analyzed", "Optimizing") aren't product names.
+    if (/^[A-Z][a-z]{3,}(?:ed|ing|es|s)?$/.test(clean) && /(?:ed|ing)$/.test(clean) && !/^(Spring|Ping|Sling|Swing)$/.test(clean)) return;
     let plainWord = /^[A-Z][a-z]+(?:-[A-Za-z][a-z]+)*$/.test(clean);
     if (plainWord && jobLower.includes(clean.toLowerCase())) return;
+    // "S3-backed": only the named parts of a hyphenated word need support.
+    if (clean.includes("-")) {
+      let parts = clean.split("-").filter((p) => p && isNamed(p) && !allowedLower.includes(p.toLowerCase()) && !(/^[A-Z][a-z]+$/.test(p) && jobLower.includes(p.toLowerCase())));
+      bad.push(...parts);
+      return;
+    }
     bad.push(clean);
   });
-  return bad;
+  return [...new Set(bad)];
 }
 // A rewritten bullet must still describe the same work: it keeps a share of the
 // original bullet's words. A bullet replaced with different work needs review.
@@ -503,6 +550,26 @@ function keepTwoBulletsPerRole(lines, byLine) {
     }
   }
 }
+// Items of a list line ("Databases: PostgreSQL, DynamoDB, Hive"): the text after the label, split on , ; |.
+const TOOL_LINE_LABEL = /^\s*(?:[•●▪*-]\s+)?(environment|tech(?:nologies|nology)?(?: stack)?|tools(?: (?:used|&[^:]{0,20}))?|stack|key skills|skills used)\s*:/i;
+function listItems(line) {
+  let t = String(line || "");
+  if (!t.includes(":")) return [];
+  return t
+    .slice(t.indexOf(":") + 1)
+    .split(/[,;|]|\s+and\s+/)
+    .map((x) => x.replace(/\([^)]*\)/g, " ").replace(/[.\s]+$/, "").trim())
+    .filter((x) => x && x.length <= 40);
+}
+// Skills a rewritten list line no longer mentions. Dropping one or two that don't fit the job is
+// fine; replacing most of the line with other skills loses real experience.
+function droppedListItems(orig, text) {
+  let before = listItems(orig);
+  if (before.length < 3) return [];
+  let now = atsTokStr(text),
+    gone = before.filter((item) => !atsHas(now, item));
+  return gone.length / before.length > 0.5 ? gone : [];
+}
 function validateAiEdits(edits, lines, opts) {
   let { notes = "", confirmed = [], format = "docx", sections, jobTitle = "", jobText = "", targetRole = "", riskySkills = [], roleChange = false } = opts,
     jobTok = new Set(atsTokens(jobText)),
@@ -570,7 +637,13 @@ function validateAiEdits(edits, lines, opts) {
         continue;
       }
       unknown = [...new Set([...unsupportedTerms(text, section === "summary" ? allowedSummary : allowed, jobLower), ...claimedMissingSkills(text, orig, riskySkills, [jobTitle, coreJobTitle(jobTitle)])])];
-      if (op === "replace" && (section === "experience" || section === "projects") && !rewriteKeepsWork(orig, text)) unknown.push("__different_work__");
+      let toolLine = TOOL_LINE_LABEL.test(orig),
+        listLine = op === "replace" && (toolLine || (section === "skills" && orig.includes(":")));
+      if (op === "replace" && (section === "experience" || section === "projects") && !toolLine && !rewriteKeepsWork(orig, text)) unknown.push("__different_work__");
+      if (listLine && !roleChange) {
+        let gone = droppedListItems(orig, text);
+        if (gone.length) unknown.push("__drops__" + gone.slice(0, 8).join(", "));
+      }
       if (roleChange) unknown.push(...jobOnlyClaims(text, orig, jobTok, resumeTok, allowedTok, section === "summary" ? [jobTitle, coreJobTitle(jobTitle)] : [], section === "skills" ? 1 : 2).filter((w) => !unknown.includes(w)));
       let withoutTitle = section === "summary" ? [jobTitle, coreJobTitle(jobTitle)].filter(Boolean).reduce((t, title) => t.replace(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " "), text) : text;
       if (section !== "skills") unknown.push(...claimedJobWords(withoutTitle, orig, riskySkills, resumeTok, allowedTok).filter((w) => !unknown.some((u) => u.toLowerCase().startsWith(w))));
@@ -607,6 +680,7 @@ function validateAiEdits(edits, lines, opts) {
         reason:
           (en.unknown.includes("__too_long__") ? "⚠ Longer than the original PDF line — shorten it in the editor so it fits at the same size. " : "") +
           (en.unknown.includes("__different_work__") ? "⚠ Verify before applying: this rewrite describes different work than your original bullet. " : "") +
+          (en.unknown.filter((u) => u.startsWith("__drops__")).map((u) => `⚠ Verify before applying: this drops skills you listed (${u.slice(9)}). `)[0] || "") +
           (en.unknown.filter((u) => !u.startsWith("__")).length ? `⚠ Verify before applying: mentions ${[...new Set(en.unknown.filter((u) => !u.startsWith("__")))].join(", ")}, which isn’t in your resume. ` : "") +
           (en.reasons[0] || "Aligned with the job description.") +
           (en.keywords.length ? ` · Surfaces: ${[...new Set(en.keywords)].slice(0, 5).join(", ")}` : ""),

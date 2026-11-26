@@ -54,14 +54,64 @@ function atsWordSet(tokStr) {
   }
   return s;
 }
+// Other wording that shows the same skill: "ETL pipelines" is data pipeline work.
+const ATS_EVIDENCE = {
+  "data pipelines": ["etl pipelines", "elt pipelines", "spark pipelines", "pyspark pipelines", "streaming pipelines", "batch pipelines", "ingestion pipelines", "data pipeline", "etl"],
+  "rest apis": ["rest api", "restful", "restful apis"],
+  "data warehousing": ["data warehouse", "warehouse", "snowflake", "redshift", "bigquery", "synapse"],
+  "data modeling": ["dimensional modeling", "data models", "star schema", "schema design"],
+  "data visualization": ["dashboards", "tableau", "power bi", "looker"],
+  "ci/cd": ["github actions", "gitlab ci", "jenkins"],
+  "machine learning": ["ml models", "ml model", "ml pipelines"],
+  "single sign-on": ["sso"],
+  "sso": ["single sign-on"],
+};
+const atsEvidenceKeys = new Map();
+function atsEvidenceFor(t) {
+  if (!atsEvidenceKeys.size) for (let [k, alts] of Object.entries(ATS_EVIDENCE)) atsEvidenceKeys.set(atsTermKey(k), alts);
+  return atsEvidenceKeys.get(t) || [];
+}
+const atsPosCache = new Map();
+// Every word of a multi-word skill within a few words of each other, in any order:
+// "Governance & Reliability: Data lineage" shows data governance.
+function atsNear(tokStr, words) {
+  let pos = atsPosCache.get(tokStr);
+  if (!pos) {
+    if (atsPosCache.size > 100) atsPosCache.clear();
+    pos = new Map();
+    tokStr.trim().split(" ").forEach((w, i) => (pos.get(w) || pos.set(w, []).get(w)).push(i));
+    atsPosCache.set(tokStr, pos);
+  }
+  let span = words.length + 2,
+    lists = words.map((w) => pos.get(w) || []);
+  if (lists.some((l) => !l.length)) return false;
+  return lists[0].some((p0) => lists.slice(1).every((l) => l.some((p) => Math.abs(p - p0) <= span)));
+}
 function atsHas(tokStr, term) {
   let t = atsTermKey(term);
   if (!t) return false;
   let first = atsFirstCache.get(t);
   if (first === undefined) atsFirstCache.set(t, (first = t.split(" ")[0]));
-  if (!atsWordSet(tokStr).has(first)) return false;
-  return t === first || tokStr.includes(` ${t} `);
+  let set = atsWordSet(tokStr);
+  if (set.has(first) && (t === first || tokStr.includes(` ${t} `))) return true;
+  let words = t.split(" ");
+  if (words.length > 1 && words.length <= 3 && words.every((w) => set.has(w)) && atsNear(tokStr, words)) return true;
+  return atsEvidenceFor(t).some((alt) => {
+    let a = atsTermKey(alt);
+    return a && tokStr.includes(` ${a} `);
+  });
 }
+// A job title without requisition numbers: "Databricks Data Engineer/ 116431-1" → "Databricks Data Engineer".
+function atsCleanTitle(title) {
+  return String(title || "")
+    .replace(/\b(?:(?:job|req(?:uisition)?|position)[\s-]*)?(?:id|no\.?|number)\b\s*[:#]?\s*[A-Z]{0,4}-?\d[\w-]*/gi, " ")
+    .replace(/#\s*[A-Z]{0,4}-?\d[\w-]*/gi, " ")
+    .replace(/(?:^|[\s/|–—-])\s*[A-Z]{0,3}-?\d{4,}(?:[-_.]\d+)*\b/g, " ")
+    .replace(/[\s/|,:–—-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+window.atsCleanTitle = atsCleanTitle;
 function atsDegreeLevel(text) {
   let t = String(text || "");
   if (/\b(ph\.?d|doctorate|doctoral)\b/i.test(t)) return 3;
@@ -111,7 +161,7 @@ function atsJobProfile(job) {
     if (w.length < 4 || ATS_STOP.has(w) || ATS_STOP.has(w + "s") || SEARCH_MODIFIERS.has(w) || skillTokens.has(w) || /^\d/.test(w)) continue;
     counts.set(w, (counts.get(w) || 0) + 1);
   }
-  let titleCore = coreTokens(searchTokens(String(job.title || "").replace(/\([^)]*\)/g, " "))).filter((w) => !SEARCH_MODIFIERS.has(w)).map(atsStem);
+  let titleCore = coreTokens(searchTokens(atsCleanTitle(job.title).replace(/\([^)]*\)/g, " "))).filter((w) => !SEARCH_MODIFIERS.has(w) && !/^\d/.test(w)).map(atsStem);
   for (let w of titleCore) if (!skillTokens.has(w)) counts.set(w, (counts.get(w) || 0) + 3);
   let keywords = [...counts]
     .filter(([w, n]) => n >= 2)
@@ -157,7 +207,7 @@ function atsFormat(text) {
       ["Skills section", has("skills")],
       ["Education section", has("education")],
       ["bullet points", lines.filter((l) => /^\s*(?:[•●▪*-]|\d+[.)])\s+/.test(l)).length >= 3 || lines.filter((l) => l.trim().length > 60).length >= 4],
-      ["length (300–1,200 words)", words >= 250 && words <= 1300],
+      [words < 250 ? "more content (at least 300 words)" : "a shorter resume (under 2,000 words)", words >= 250 && words <= 2000],
     ];
   return { pct: checks.filter((c) => c[1]).length / checks.length, missing: checks.filter((c) => !c[1]).map((c) => c[0]) };
 }

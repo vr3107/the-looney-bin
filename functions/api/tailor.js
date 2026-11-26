@@ -41,7 +41,7 @@ function withinRateLimit(ip) {
   const now = Date.now();
   const current = requestsByIp.get(ip);
   if (current && now - current.startedAt < 60_000) {
-    if (current.count >= 6) return false;
+    if (current.count >= 10) return false;
     current.count += 1;
   } else requestsByIp.set(ip, { startedAt: now, count: 1 });
   if (requestsByIp.size > 5000)
@@ -187,7 +187,7 @@ async function runJson(env, system, user, maxTokens, isUsable) {
   throw error;
 }
 
-function tailorPrompt(intensity, format, roleChange) {
+function tailorPrompt(intensity, format, roleChange, range = null) {
   const depth = {
     light: "Make focused edits: rewrite the summary, the skills lines, and the 6–8 experience/project bullets most relevant to the job.",
     balanced: "Tailor the whole resume: rewrite the summary, rewrite every experience and project bullet (not only the skills), and reorder the skills lines. Most bullets should change.",
@@ -226,7 +226,10 @@ CHANGING FIELDS: this job is in a different field from the candidate's current r
 ` : ""}
 Return ONLY one JSON object, no Markdown:
 {"overview":"2-3 sentences on how the resume was positioned for this job","edits":[{"line":<line number>,"op":"replace"|"insert_after"|"delete","section":"summary|skills|experience|projects|education|certifications|additional","text":"new line text (omit for delete)","reason":"short reason tied to the job","keywords":["job keywords this edit surfaces"]}]}
-Return at most 60 edits, ordered by line number, and include an edit for the summary and for the experience and project bullets.`;
+Keep each "reason" under 15 words and "keywords" to at most 3 items, so every edit fits.
+${range
+    ? `Only return edits for lines L${range.from} to L${range.to}; the other lines are context for the whole resume and must not be edited. Edit every summary, experience, and project line in that range that can be truthfully aligned with the job. Return at most 45 edits, ordered by line number.`
+    : "Return at most 60 edits, ordered by line number, and include an edit for the summary and for every experience and project bullet that can be truthfully aligned with the job."}`;
 }
 
 function coverLetterPrompt(tone, length, roleChange = false) {
@@ -285,6 +288,10 @@ async function handleTailor(body, env) {
     skillsAlreadyInResume: strList(body.ats?.skillsAlreadyInResume, 40),
     keywordsMissingFromResume: strList(body.ats?.keywordsMissingFromResume, 30),
   };
+  // Long resumes are tailored in parts run side by side: each request edits only its line range.
+  const from = Number(body.editRange?.from),
+    to = Number(body.editRange?.to);
+  const range = Number.isInteger(from) && Number.isInteger(to) && from >= 1 && to >= from && to <= lines.length ? { from, to } : null;
   const numbered = lines.map((line, i) => `L${i + 1}: ${line}`).join("\n");
   const user = JSON.stringify({
     job,
@@ -296,9 +303,12 @@ async function handleTailor(body, env) {
     candidateFacts: notes,
     tailoringDirection: direction,
     roleChange,
+    editRange: range || undefined,
   });
-  const { parsed, model, attempts } = await runJson(env, tailorPrompt(intensity, format, roleChange), user, 8000, (p) => Array.isArray(p?.edits));
-  const edits = Array.isArray(parsed?.edits) ? parsed.edits.slice(0, 60) : [];
+  const { parsed, model, attempts } = await runJson(env, tailorPrompt(intensity, format, roleChange, range), user, 8000, (p) => Array.isArray(p?.edits));
+  let edits = Array.isArray(parsed?.edits) ? parsed.edits : [];
+  if (range) edits = edits.filter((e) => Number(e?.line) >= range.from && Number(e?.line) <= range.to);
+  edits = edits.slice(0, 60);
   return json({ overview: String(parsed?.overview || "").slice(0, 1200), edits, model, attempts });
 }
 
