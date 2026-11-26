@@ -59,6 +59,9 @@ export function htmlToText(html) {
     .trim()
     .slice(0, 40_000);
 }
+// "capitalone" / "wearedream" / "acme-corp" → "Capitalone" / "Wearedream" / "Acme Corp" (a board's ID
+// when the posting doesn't name the company; the app swaps in known names, and it can be edited).
+const fromSlug = (s) => String(s || "").replace(/[-_]+/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase());
 const clean = (s, n = 200) => decodeEntities(String(s ?? "")).replace(/\s+/g, " ").trim().slice(0, n);
 const money = (n) => (n >= 1000 ? `$${Math.round(n / 1000)}k` : `$${Math.round(n)}`);
 function salaryText(min, max, unit = "", currency = "USD") {
@@ -107,7 +110,7 @@ async function greenhouse(u) {
   if (!slug || !id || !/^\d+$/.test(id) || !new RegExp(`^${SLUG}$`).test(slug)) return null;
   const j = await getJson(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs/${id}?pay_transparency=true`);
   const pay = (j.pay_input_ranges || [])[0];
-  return result({ title: j.title, company: j.company_name || slug, location: j.location?.name, description: htmlToText(j.content), jobId: j.requisition_id || id, posted: iso(j.first_published || j.updated_at), salary: pay ? salaryText(pay.min_cents / 100, pay.max_cents / 100, "", pay.currency_type) : "", source: "Greenhouse", url: j.absolute_url || u.href });
+  return result({ title: j.title, company: j.company_name || fromSlug(slug), location: j.location?.name, description: htmlToText(j.content), jobId: /\d/.test(j.requisition_id || "") ? j.requisition_id : id, posted: iso(j.first_published || j.updated_at), salary: pay ? salaryText(pay.min_cents / 100, pay.max_cents / 100, "", pay.currency_type) : "", source: "Greenhouse", url: j.absolute_url || u.href });
 }
 async function lever(u) {
   const m = u.href.match(new RegExp(`jobs(?:\\.eu)?\\.lever\\.co/(${SLUG})/([0-9a-f-]{36})`, "i"));
@@ -116,7 +119,7 @@ async function lever(u) {
   const j = await getJson(`https://${eu}/v0/postings/${m[1]}/${m[2]}`);
   const lists = (j.lists || []).map((l) => `${l.text}\n${htmlToText(l.content)}`).join("\n\n");
   const sr = j.salaryRange;
-  return result({ title: j.text, company: m[1], location: j.categories?.allLocations?.join(" / ") || j.categories?.location, description: [j.descriptionPlain || htmlToText(j.description), lists, j.additionalPlain || htmlToText(j.additional)].filter(Boolean).join("\n\n"), jobId: m[2], posted: iso(j.createdAt), employmentType: j.categories?.commitment, workplace: j.workplaceType, salary: sr ? salaryText(sr.min, sr.max, sr.interval, sr.currency) : "", skills: [j.categories?.team, j.categories?.department].filter(Boolean), source: "Lever", url: j.hostedUrl || u.href });
+  return result({ title: j.text, company: fromSlug(m[1]), location: j.categories?.allLocations?.join(" / ") || j.categories?.location, description: [j.descriptionPlain || htmlToText(j.description), lists, j.additionalPlain || htmlToText(j.additional)].filter(Boolean).join("\n\n"), jobId: m[2], posted: iso(j.createdAt), employmentType: j.categories?.commitment, workplace: j.workplaceType, salary: sr ? salaryText(sr.min, sr.max, sr.interval, sr.currency) : "", skills: [j.categories?.team, j.categories?.department].filter(Boolean), source: "Lever", url: j.hostedUrl || u.href });
 }
 async function ashby(u) {
   const m = u.href.match(/jobs\.ashbyhq\.com\/([^/?#]+)\/([0-9a-f-]{36})/i);
@@ -126,7 +129,7 @@ async function ashby(u) {
   const d = await getJson(`https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}?includeCompensation=true`);
   const j = (d.jobs || []).find((x) => String(x.id).toLowerCase() === m[2].toLowerCase());
   if (!j) throw new Error("This posting is no longer listed on the company’s job board.");
-  return result({ title: j.title, company: d.organizationName || slug, location: [j.location, ...(j.secondaryLocations || []).map((x) => x.location)].filter(Boolean).join(" / "), description: j.descriptionPlain || htmlToText(j.descriptionHtml), jobId: j.id, posted: iso(j.publishedAt), employmentType: j.employmentType, workplace: j.workplaceType || (j.isRemote ? "Remote" : ""), salary: j.compensation?.compensationTierSummary || "", skills: [j.department, j.team].filter(Boolean), source: "Ashby", url: j.jobUrl || u.href });
+  return result({ title: j.title, company: d.organizationName || fromSlug(slug), location: [j.location, ...(j.secondaryLocations || []).map((x) => x.location)].filter(Boolean).join(" / "), description: j.descriptionPlain || htmlToText(j.descriptionHtml), jobId: j.id, posted: iso(j.publishedAt), employmentType: j.employmentType, workplace: j.workplaceType || (j.isRemote ? "Remote" : ""), salary: j.compensation?.compensationTierSummary || "", skills: [j.department, j.team].filter(Boolean), source: "Ashby", url: j.jobUrl || u.href });
 }
 async function workday(u) {
   const m = u.href.match(/^https:\/\/([a-z0-9-]+)\.(wd\d+)\.myworkdayjobs\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?([A-Za-z0-9_.-]+)\/(job\/[^?#]+)/i);
@@ -134,7 +137,7 @@ async function workday(u) {
   const [, tenant, wd, site, path] = m;
   const d = await getJson(`https://${tenant.toLowerCase()}.${wd.toLowerCase()}.myworkdayjobs.com/wday/cxs/${tenant.toLowerCase()}/${site}/${path}`);
   const j = d.jobPostingInfo || {};
-  return result({ title: j.title, company: d.hiringOrganization?.name || tenant, location: [j.location, ...(j.additionalLocations || [])].filter(Boolean).join(" / "), description: htmlToText(j.jobDescription), jobId: j.jobReqId, posted: iso(j.startDate), employmentType: j.timeType, workplace: j.remoteType || "", source: "Workday", url: j.externalUrl || u.href });
+  return result({ title: j.title, company: d.hiringOrganization?.name || fromSlug(tenant), location: [j.location, ...(j.additionalLocations || [])].filter(Boolean).join(" / "), description: htmlToText(j.jobDescription), jobId: j.jobReqId, posted: iso(j.startDate), employmentType: j.timeType, workplace: j.remoteType || "", source: "Workday", url: j.externalUrl || u.href });
 }
 async function smartRecruiters(u) {
   const m = u.href.match(/(?:jobs|careers)\.smartrecruiters\.com\/([A-Za-z0-9_-]+)\/(\d{6,})/);

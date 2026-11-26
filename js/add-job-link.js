@@ -49,7 +49,12 @@ ${field("Job description / skills", `<textarea name="description" rows="9" place
         if (j.url && /^https?:\/\//.test(j.url)) url.value = j.url;
         lastRead = url.value.trim();
         set("title", j.title);
-        set("company", j.company);
+        // Known names for boards whose ID is all the posting gives ("capitalone" → "Capital One").
+        const wd = typeof workdayFromUrl === "function" && workdayFromUrl(j.url || link),
+          known = wd && (typeof WORKDAY_COMPANIES !== "undefined" ? WORKDAY_COMPANIES : []).find((b) => b.tenant === wd.tenant);
+        const board = typeof boardFromJobUrl === "function" && boardFromJobUrl(j.url || link),
+          followed = board && (typeof companyBoards === "function" ? companyBoards() : []).find((b) => b.ats === board.ats && String(b.slug).toLowerCase() === board.slug.toLowerCase());
+        set("company", known?.name || followed?.name || j.company);
         set("location", j.location);
         set("salary", j.salary);
         set("jobId", j.jobId);
