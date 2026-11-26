@@ -31,10 +31,17 @@ export function ensureSchema(db) {
     .batch(SCHEMA.map((sql) => db.prepare(sql)))
     // Columns added after the first release; "duplicate column" just means it's already there.
     .then(() => db.prepare("ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0").run().catch(() => {}))
-    .catch((e) => {
-    schemaReady = null;
-    throw e;
-  });
+    .catch(async (e) => {
+      schemaReady = null;
+      // The tables already exist and only the set-up write failed (for example the database's
+      // daily write allowance is used up): keep serving, and try the set-up again next time.
+      const ok = await db.prepare("SELECT disabled FROM users LIMIT 1").first().then(() => true, () => false);
+      if (ok) {
+        console.warn("schema check skipped", e?.message);
+        return;
+      }
+      throw e;
+    });
   return schemaReady;
 }
 

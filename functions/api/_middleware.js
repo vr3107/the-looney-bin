@@ -28,9 +28,11 @@ export async function onRequest(context) {
     if (data.user && path === "/api/tailor" && !reading) {
       const day = new Date().toISOString().slice(0, 10),
         limit = Number(env.AI_DAILY_LIMIT) || AI_DAILY_LIMIT,
-        row = await env.DB.prepare("INSERT INTO usage (user_id, day, kind, count) VALUES (?, ?, 'ai', 1) ON CONFLICT(user_id, day, kind) DO UPDATE SET count = count + 1 RETURNING count").bind(data.user.id, day).first();
+        // If the count can't be written (e.g. the database's daily write allowance is used up),
+        // the per-IP limit in the tailor function still applies.
+        row = await env.DB.prepare("INSERT INTO usage (user_id, day, kind, count) VALUES (?, ?, 'ai', 1) ON CONFLICT(user_id, day, kind) DO UPDATE SET count = count + 1 RETURNING count").bind(data.user.id, day).first().catch((e) => (console.warn("usage count failed", e?.message), null));
       if ((row?.count || 1) > limit) return secure(fail("daily_ai_limit", 429, { limit }));
-      if (Math.random() < 0.02) await env.DB.prepare("DELETE FROM usage WHERE day < ?").bind(new Date((now() - 14 * 86400) * 1000).toISOString().slice(0, 10)).run();
+      if (Math.random() < 0.02) await env.DB.prepare("DELETE FROM usage WHERE day < ?").bind(new Date((now() - 14 * 86400) * 1000).toISOString().slice(0, 10)).run().catch(() => {});
     }
     return secure(await next());
   } catch (e) {
