@@ -427,6 +427,11 @@ function isProtectedLine(line, section) {
   if (section === "education" || section === "certifications") return true;
   // Job title / company / date lines (not bullets) carry facts that must not change.
   if (!bulletPrefix(t) && /\b(19|20)\d{2}\b|\bpresent\b|\bcurrent\b/i.test(t)) return true;
+  // "Data Engineer | Acme Corp" (dates on the next line) and "Remote/USA" lines.
+  if ((section === "experience" || section === "projects") && !bulletPrefix(t)) {
+    if (/\S\s+\|\s+\S/.test(t) && t.length <= 90 && !/[.;:]$/.test(t)) return true;
+    if (typeof resumeIsPlace === "function" && resumeIsPlace(t.split("\t")[0])) return true;
+  }
   return false;
 }
 // Named terms (tools, products, acronyms) in new text must come from the resume, facts, or confirmed keywords.
