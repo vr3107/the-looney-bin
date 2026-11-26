@@ -444,7 +444,7 @@ function unsupportedTerms(text, allowedLower, jobLower = "") {
   words.forEach((w, i) => {
     let clean = w.replace(/^[("'[]+|[)"'\].,;:!?]+$/g, "");
     // Skip the first word and any word that starts a new sentence.
-    if (!clean || clean === "/" || i === 0 || /[.!?:;]$/.test(words[i - 1] || "")) return;
+    if (!clean || clean === "/" || i === 0 || /[.!?;]$/.test(words[i - 1] || "")) return;
     if (/^\d[\d.,%+]*$/.test(clean)) return; // numbers are checked separately
     if (!isNamed(clean) || allowedLower.includes(clean.toLowerCase())) return;
     // Plain capitalized verbs and words ("Analyzed", "Optimizing") aren't product names.
@@ -566,9 +566,8 @@ function listItems(line) {
 function droppedListItems(orig, text) {
   let before = listItems(orig);
   if (before.length < 3) return [];
-  let now = atsTokStr(text),
-    gone = before.filter((item) => !atsHas(now, item));
-  return gone.length / before.length > 0.5 ? gone : [];
+  let now = atsTokStr(text);
+  return before.filter((item) => !atsHas(now, item));
 }
 function validateAiEdits(edits, lines, opts) {
   let { notes = "", confirmed = [], format = "docx", sections, jobTitle = "", jobText = "", targetRole = "", riskySkills = [], roleChange = false } = opts,
@@ -636,13 +635,15 @@ function validateAiEdits(edits, lines, opts) {
         rejected++;
         continue;
       }
-      unknown = [...new Set([...unsupportedTerms(text, section === "summary" ? allowedSummary : allowed, jobLower), ...claimedMissingSkills(text, orig, riskySkills, [jobTitle, coreJobTitle(jobTitle)])])];
+      // A Skills line's category label may be renamed for the job ("Data Platforms:"); only its items are claims.
+      let claimText = section === "skills" && /^[^:]{1,40}:/.test(text) ? text.replace(/^[^:]{1,40}:/, "Skills:") : text;
+      unknown = [...new Set([...unsupportedTerms(claimText, section === "summary" ? allowedSummary : allowed, jobLower), ...claimedMissingSkills(text, orig, riskySkills, [jobTitle, coreJobTitle(jobTitle)])])];
       let toolLine = TOOL_LINE_LABEL.test(orig),
         listLine = op === "replace" && (toolLine || (section === "skills" && orig.includes(":")));
       if (op === "replace" && (section === "experience" || section === "projects") && !toolLine && !rewriteKeepsWork(orig, text)) unknown.push("__different_work__");
       if (listLine && !roleChange) {
         let gone = droppedListItems(orig, text);
-        if (gone.length) unknown.push("__drops__" + gone.slice(0, 8).join(", "));
+        if (gone.length) unknown.push("__drops__" + JSON.stringify({ gone, of: listItems(orig).length, skills: section === "skills" }));
       }
       if (roleChange) unknown.push(...jobOnlyClaims(text, orig, jobTok, resumeTok, allowedTok, section === "summary" ? [jobTitle, coreJobTitle(jobTitle)] : [], section === "skills" ? 1 : 2).filter((w) => !unknown.includes(w)));
       let withoutTitle = section === "summary" ? [jobTitle, coreJobTitle(jobTitle)].filter(Boolean).reduce((t, title) => t.replace(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " "), text) : text;
@@ -659,6 +660,26 @@ function validateAiEdits(edits, lines, opts) {
     if (e.reason) entry.reasons.push(String(e.reason).slice(0, 300));
     if (Array.isArray(e.keywords)) entry.keywords.push(...e.keywords.map(String).slice(0, 6));
     byLine.set(idx, entry);
+  }
+  // Skills the model moved to another Skills line (regrouping) aren't lost. Hold a list line
+  // for review only if, across the whole new Skills section, it still loses most of its items
+  // or loses one this job asks for.
+  let skillsAfter = "";
+  lines.forEach((l, i) => {
+    if (sectionOfLine(lines, i) !== "skills") return;
+    let en = byLine.get(i);
+    skillsAfter += "\n" + (en ? [...(en.del ? [] : [en.replace ?? l]), ...en.inserts].join("\n") : l);
+  });
+  let skillsTok = atsTokStr(skillsAfter),
+    jobTokStr = atsTokStr(jobText);
+  for (let en of byLine.values()) {
+    en.unknown = en.unknown.flatMap((u) => {
+      if (!u.startsWith("__drops__")) return [u];
+      let d = JSON.parse(u.slice(9)),
+        gone = d.skills ? d.gone.filter((g) => !atsHas(skillsTok, g)) : d.gone,
+        neededByJob = gone.filter((g) => atsHas(jobTokStr, g));
+      return gone.length && ((gone.length / d.of > 0.6 && gone.length >= 3) || neededByJob.length) ? ["__drops__" + (neededByJob.length ? neededByJob : gone).slice(0, 8).join(", ")] : [];
+    });
   }
   keepTwoBulletsPerRole(lines, byLine);
   keepSkillLines(lines, byLine, 3, jobText);
