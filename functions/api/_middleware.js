@@ -35,6 +35,8 @@ export async function onRequest(context) {
     return secure(await next());
   } catch (e) {
     console.error("api error", path, e?.message);
-    return secure(fail("server_error", 500));
+    // The site owner sees why, so a live failure can be diagnosed without server logs.
+    const owner = data.user && (data.user.role === "owner" || data.user.role === "admin");
+    return secure(fail("server_error", 500, owner ? { detail: String(e?.message || e).slice(0, 300) } : undefined));
   }
 }
