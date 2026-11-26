@@ -46,7 +46,7 @@ function sseMessage(text) {
   return JSON.parse(text);
 }
 
-function structuredResult(result) {
+export function structuredResult(result) {
   if (result?.structuredContent?.data) return result.structuredContent;
   if (result?.structured_content?.data) return result.structured_content;
   const content = Array.isArray(result?.content) ? result.content : [];
@@ -60,7 +60,7 @@ function structuredResult(result) {
   }
 }
 
-async function diceRequest(payload, sessionId = "", protocolVersion = "") {
+export async function diceRequest(payload, sessionId = "", protocolVersion = "") {
   const response = await fetch(DICE_ENDPOINT, {
     method: "POST",
     headers: {
@@ -80,7 +80,7 @@ async function diceRequest(payload, sessionId = "", protocolVersion = "") {
   return { session, rpc: sseMessage(text) };
 }
 
-async function initializeDice() {
+export async function initializeDice() {
   const { session, rpc } = await diceRequest({
     jsonrpc: "2.0",
     id: 1,
