@@ -163,6 +163,8 @@ function resumeTitleParts(line, inRoles) {
     return { left: cols[0].trim(), right: cols.slice(1).map((c) => c.trim()).join("  |  ").replace(/\s*\|\s*\|\s*/g, "  |  ") };
   let date = t.match(DOCX_DATE_RE);
   if (date && inRoles && date.index > 0) return { left: t.slice(0, date.index).replace(/[\s,|–—-]+$/, ""), right: date[0].trim() };
+  // "Cloud Data Engineer | Saayam For All" with the dates on the next line.
+  if (inRoles && /\S\s+\|\s+\S/.test(t) && t.length <= 90 && !/[.;:]$/.test(t) && !/^[a-z]/.test(t)) return { left: t, right: "" };
   return null;
 }
 // "Remote/USA", "Hyderabad, India", "Chandler, AZ": a location line, set in regular weight.
